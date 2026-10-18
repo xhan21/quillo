@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Translation
+import Speech
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -16,6 +17,8 @@ final class AppModel: ObservableObject {
     @Published var translationReady = false
     @Published var preparingTranslation = false
     @Published var translationConfiguration: TranslationSession.Configuration?
+    @Published private(set) var translationSessionID = UUID()
+    @Published private(set) var speechLanguageReady = true
     @Published var isListening = false
     @Published var isStartingMic = false
     @Published var isDemoPlaying = false
@@ -51,6 +54,8 @@ final class AppModel: ObservableObject {
     // Internal read-only diagnostics used by the integration tests.
     var pendingTranslationCount: Int { mailbox.count }
     var requiresTranslation: Bool { translationEnabled && sourceLanguage != targetLanguage }
+    var convertsChineseScript: Bool { sourceLanguage != targetLanguage && sourceLanguage.isChinese && targetLanguage.isChinese }
+    var languagePairLabel: String { "\(sourceLanguage.name) → \(targetLanguage.name)" }
     var visibleCaption: VisibleCaption {
         let size = captionLayoutSize
         let latest = CaptionViewport.latest(source: sourceText, translation: translatedText,
@@ -92,6 +97,10 @@ final class AppModel: ObservableObject {
         speech.onStarted = { [weak self] in self?.isStartingMic = false }
         speech.onStopped = { [weak self] in self?.isListening = false; self?.isStartingMic = false }
         showSample()
+        refreshSpeechReadiness()
+    }
+    func refreshSpeechReadiness() {
+        speechLanguageReady = SFSpeechRecognizer(locale: Locale(identifier: sourceLanguage.speechLocale))?.supportsOnDeviceRecognition == true
     }
     private func glossaryChanged() {
         speech.contextualPhrases = glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
@@ -125,7 +134,7 @@ final class AppModel: ObservableObject {
     // Every partial result reaches the original caption synchronously. No silence
     // timer, translation completion, or reading-duration timer gates this path.
     private func receive(_ text: String, id: UUID, kind: String) {
-        let clean = captionText(text)
+        let clean = sourceLanguage.normalizeScript(captionText(text))
         guard !clean.isEmpty else { return }
         let index = logs.firstIndex { $0.id == id }
         let changed = index.map { logs[$0].source != clean } ?? true
@@ -154,7 +163,13 @@ final class AppModel: ObservableObject {
         guard let revision = revisions[id] else { return }
         let job = TranslationJob(cueID: id, revision: revision, generation: contentGeneration, text: text)
         guard submitted[id] != job else { return }
-        submitted[id] = job; mailbox.submit(job); translationContinuation?.yield(())
+        submitted[id] = job
+        if convertsChineseScript {
+            acceptTranslation(targetLanguage.normalizeScript(text), for: job)
+            translationReady = true
+            return
+        }
+        mailbox.submit(job); translationContinuation?.yield(())
     }
 
     // nil selects original-only. A display change must never reset capture, the
@@ -164,14 +179,22 @@ final class AppModel: ObservableObject {
         if let mode { displayMode = mode }
         updateAppearance()
         translationUpdating = requiresTranslation && currentID.map { translatedRevisions[$0] != revisions[$0] } == true
-        guard requiresTranslation, let id = currentID else { return }
-        if translationUpdating {
+        guard requiresTranslation else {
+            translationStatus = "原文のみを表示しています。翻訳を表示するには「翻訳のみ」か「原文 ＋ 翻訳」を選んでください。"
+            return
+        }
+        if translationUpdating, let id = currentID {
             if let index = logs.firstIndex(where: { $0.id == id }) { logs[index].translationIncomplete = true }
             submitTranslation(id: id, text: sourceText)
         }
         // Original-only may have started before a session existed. Resume from
         // the current text even if the speaker has already stopped talking.
         if !translationReady || liveTranslationFailed { prepareTranslation() }
+        else {
+            translationStatus = convertsChineseScript
+                ? "\(languagePairLabel) · このMac内で字体を変換します。"
+                : "\(languagePairLabel) · 翻訳の準備ができました。"
+        }
     }
 
     func languageChanged() {
@@ -183,8 +206,10 @@ final class AppModel: ObservableObject {
         speech.contextualPhrases = glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
         translationEpoch += 1; translationContinuation?.finish(); translationContinuation = nil
         translationConfiguration = nil; translationReady = false; preparingTranslation = false
+        translationSessionID = UUID()
         translationStatus = requiresTranslation ? "言語を変更しました。「翻訳を準備」を押してください。" : "原文字幕のみ表示します。"
-        showSample(); updateAppearance()
+        captionKind = "字幕待機中"; updateAppearance(); refreshSpeechReadiness()
+        if requiresTranslation { prepareTranslation() }
     }
     func prepareTranslation() {
         guard requiresTranslation, !preparingTranslation else { return }
@@ -195,18 +220,37 @@ final class AppModel: ObservableObject {
             submitTranslation(id: line.id, text: line.source)
         }
         liveTranslationFailed = false
+        if convertsChineseScript {
+            translationConfiguration = nil; translationReady = true; preparingTranslation = false
+            translationStatus = "\(languagePairLabel) · このMac内で字体を変換します。"
+            return
+        }
         preparingTranslation = true; translationReady = false
-        translationStatus = "言語を準備しています。初回はmacOSからダウンロードの確認が表示されます。"
-        if translationConfiguration != nil { translationConfiguration?.invalidate() }
-        else { translationConfiguration = TranslationSession.Configuration(source: Locale.Language(identifier: sourceLanguage.rawValue), target: Locale.Language(identifier: targetLanguage.rawValue)) }
+        translationStatus = "\(languagePairLabel) を準備しています。初回はmacOSの言語データ取得を確認してください。"
+        // Give every language change/retry its own SwiftUI translation host.
+        // Reusing a cancelled host can leave macOS 15 stuck before the action runs.
+        translationConfiguration = TranslationSession.Configuration(source: Locale.Language(identifier: sourceLanguage.rawValue), target: Locale.Language(identifier: targetLanguage.rawValue))
+        translationSessionID = UUID()
     }
-    func runTranslation(_ session: TranslationSession) async {
-        await runTranslationWorker(prepare: { try await session.prepareTranslation() }, translate: { try await session.translate($0).targetText })
+    func retryTranslation() {
+        preparingTranslation = false
+        prepareTranslation()
+    }
+    func runTranslation(_ session: TranslationSession, sessionID: UUID) async {
+        guard sessionID == translationSessionID, !Task.isCancelled else { return }
+        let epoch = translationEpoch
+        let source = sourceLanguage, target = targetLanguage
+        await runTranslationWorker(expectedEpoch: epoch, prepare: {
+            let availability = await LanguageAvailability().status(from: Locale.Language(identifier: source.rawValue), to: Locale.Language(identifier: target.rawValue))
+            guard availability != .unsupported else { throw TranslationError.unsupportedLanguagePairing }
+            try await session.prepareTranslation()
+        }, translate: { try await session.translate($0).targetText })
     }
     // Shared production/test worker: one translation in flight, one latest pending
     // hypothesis per utterance. Wakeups are bounded too, so speech cannot flood it.
-    func runTranslationWorker(prepare: () async throws -> Void, translate: (String) async throws -> String) async {
-        let epoch = translationEpoch
+    func runTranslationWorker(expectedEpoch: Int? = nil, prepare: () async throws -> Void, translate: (String) async throws -> String) async {
+        let epoch = expectedEpoch ?? translationEpoch
+        guard epoch == translationEpoch, !Task.isCancelled else { return }
         let stream = AsyncStream<Void>(bufferingPolicy: .bufferingNewest(1)) { translationContinuation = $0 }
         defer {
             if epoch == translationEpoch {
@@ -218,7 +262,7 @@ final class AppModel: ObservableObject {
             try await prepare()
             guard epoch == translationEpoch, !Task.isCancelled else { return }
             preparingTranslation = false; translationReady = true
-            translationStatus = "準備完了 · このMac内で、話の途中から翻訳を更新します。"
+            translationStatus = "\(languagePairLabel) · 翻訳の準備ができました。"
             translationContinuation?.yield(())
             var lastStart: ContinuousClock.Instant?
             for await _ in stream {
@@ -238,7 +282,7 @@ final class AppModel: ObservableObject {
                         guard epoch == translationEpoch, !Task.isCancelled else { return }
                         guard job.generation == contentGeneration else { continue }
                         guard !captionText(translated).isEmpty else { throw NSError(domain: "KotobaTranslation", code: 1) }
-                        acceptTranslation(translated, for: job)
+                        acceptTranslation(targetLanguage.normalizeScript(translated), for: job)
                     } catch {
                         guard epoch == translationEpoch, !Task.isCancelled else { return }
                         guard job.generation == contentGeneration else { continue }
@@ -252,7 +296,10 @@ final class AppModel: ObservableObject {
         } catch {
             guard epoch == translationEpoch, !Task.isCancelled else { return }
             translationReady = false; preparingTranslation = false
-            translationStatus = "言語の準備を完了できませんでした。ネット接続と言語のダウンロードを確認して再試行してください。"
+            liveTranslationFailed = true
+            translationStatus = TranslationError.unsupportedLanguagePairing ~= error
+                ? "\(languagePairLabel) は、このmacOSの翻訳機能で利用できません。"
+                : "\(languagePairLabel) を準備できませんでした。「翻訳を準備」で再試行し、macOSの言語データ取得を確認してください。"
         }
     }
     private func acceptTranslation(_ text: String, for job: TranslationJob) {
@@ -268,6 +315,11 @@ final class AppModel: ObservableObject {
 
     func toggleMic() {
         if isListening || isStartingMic { stopMic(); return }
+        refreshSpeechReadiness()
+        guard speechLanguageReady else {
+            status = "\(sourceLanguage.dictationName)の音声データが必要です。Macの「システム設定 → キーボード → 音声入力 → 言語」で追加し、取得後に再開してください。"
+            return
+        }
         stopDemo(); resetLiveCaption()
         isStartingMic = true; isListening = true; captionKind = "マイク準備中"
         status = "マイクと音声認識の許可を確認しています。"; ensureOverlay()
@@ -294,16 +346,19 @@ final class AppModel: ObservableObject {
         if isDemoPlaying { stopDemo(); return }
         stopMic(); resetLiveCaption(); isDemoPlaying = true; ensureOverlay()
         status = "話の途中で字幕が伸びる表示デモです。準備済みの文章を使い、マイクは使用しません。"
-        demoTask = Task { [weak self] in
+        demoTask = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
                 for sample in SampleCaption.examples {
-                    let original = Array(sample.text(self.sourceLanguage)), translated = Array(sample.text(self.targetLanguage))
+                    let original = Array(sample.text(self.sourceLanguage))
+                    let translated = Array(sample.text(self.targetLanguage))
                     self.captionKind = "サンプル字幕"; self.sourceText = ""; self.translatedText = ""
                     for count in 1...original.count {
                         guard !Task.isCancelled else { return }
                         self.sourceText = String(original.prefix(count))
-                        self.translatedText = String(translated.prefix(Int(Double(max(0, count - 2)) / Double(original.count) * Double(translated.count))))
+                        let progress = Double(max(0, count - 2)) / Double(original.count)
+                        let translatedCount = Int(progress * Double(translated.count))
+                        self.translatedText = String(translated.prefix(translatedCount))
                         try? await Task.sleep(for: .milliseconds(140))
                     }
                     guard !Task.isCancelled else { return }

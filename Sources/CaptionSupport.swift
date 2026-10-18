@@ -27,6 +27,18 @@ enum CaptionLanguage: String, CaseIterable, Identifiable {
     var name: String { switch self { case .japanese: return "日本語"; case .english: return "English"; case .chinese: return "中文（簡体字）"; case .traditionalChinese: return "中文（繁體字）" } }
     var speechLocale: String { switch self { case .japanese: return "ja-JP"; case .english: return "en-US"; case .chinese: return "zh-CN"; case .traditionalChinese: return "zh-TW" } }
     var ocrLocale: String { switch self { case .chinese, .traditionalChinese: return rawValue; default: return speechLocale } }
+    var isChinese: Bool { self == .chinese || self == .traditionalChinese }
+    var dictationName: String { switch self {
+        case .japanese: return "日本語（日本）"
+        case .english: return "英語（アメリカ合衆国）"
+        case .chinese: return "中国語（普通話 - 中国本土）"
+        case .traditionalChinese: return "中国語（普通話 - 台湾）"
+    } }
+    func normalizeScript(_ text: String) -> String {
+        guard isChinese else { return text }
+        let transform = StringTransform(self == .chinese ? "Traditional-Simplified" : "Simplified-Traditional")
+        return text.applyingTransform(transform, reverse: false) ?? text
+    }
 }
 
 struct SampleCaption {

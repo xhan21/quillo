@@ -21,3 +21,5 @@ $SWIFT $APP_SOURCES Tests/PlaybackIntegrationTests.swift -o build/playback-integ
 build/playback-integration-tests
 $SWIFT $APP_SOURCES Tests/GlossaryTests.swift -o build/glossary-tests -framework AppKit -framework SwiftUI -framework Speech -framework AVFoundation -framework Translation -framework ScreenCaptureKit -framework Vision -framework CoreImage
 build/glossary-tests
+$SWIFT $APP_SOURCES Tests/LanguageCoverageTests.swift -o build/language-coverage-tests -framework AppKit -framework SwiftUI -framework Speech -framework AVFoundation -framework Translation -framework ScreenCaptureKit -framework Vision -framework CoreImage
+build/language-coverage-tests

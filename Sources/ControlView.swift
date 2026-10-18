@@ -57,7 +57,13 @@ struct ControlView: View {
         }
         .background(Color.kotobaPaper).preferredColorScheme(.light).tint(Color.kotobaGreen)
         .frame(minWidth: 680, idealWidth: 760, minHeight: 650)
-        .translationTask(model.translationConfiguration) { session in await model.runTranslation(session) }
+        .background {
+            if let configuration = model.translationConfiguration {
+                CaptionTranslationHost(model: model, configuration: configuration, sessionID: model.translationSessionID)
+                    .id(model.translationSessionID)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshSpeechReadiness() }
         .sheet(isPresented: $model.helpVisible) { HelpView() }
     }
     private var languageCard: some View {
@@ -110,12 +116,18 @@ struct ControlView: View {
                 Text("原文 ＋ 翻訳").tag(CaptionDisplayMode.bilingual.rawValue)
             }.pickerStyle(.segmented).labelsHidden()
             Text(model.status).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if model.requiresTranslation && (!model.translationReady || model.liveTranslationFailed) {
+            if !model.speechLanguageReady {
+                Text("\(model.sourceLanguage.dictationName)の音声データが未準備です。Macの「システム設定 → キーボード → 音声入力 → 言語」で追加し、ダウンロードの完了を確認してください。文字入力・資料要約は使えます。")
+                    .font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            if model.requiresTranslation {
                 HStack {
                     Text(model.translationStatus).font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     Spacer()
-                    Button(model.preparingTranslation ? "言語を準備中…" : "翻訳を準備") { model.prepareTranslation() }
-                        .disabled(model.preparingTranslation).font(.system(size: 11)).buttonStyle(.bordered)
+                    if !model.translationReady || model.liveTranslationFailed {
+                        Button(model.preparingTranslation ? "準備をやり直す" : "翻訳を準備") { model.retryTranslation() }
+                            .font(.system(size: 11)).buttonStyle(.bordered)
+                    }
                 }
             }
         }.card()
@@ -178,6 +190,20 @@ struct ControlView: View {
             Text("全文は「テキストで保存」で取り出せます。保存しなければ、ログは終了時に消えます。")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
         }
+    }
+}
+
+// Keep session identity separate from the controls, so rebuilding a cancelled
+// translation task does not reset the selected settings tab or text field.
+private struct CaptionTranslationHost: View {
+    let model: AppModel
+    let configuration: TranslationSession.Configuration
+    let sessionID: UUID
+    var body: some View {
+        Color.clear.frame(width: 1, height: 1)
+            .translationTask(configuration) { session in
+                await model.runTranslation(session, sessionID: sessionID)
+            }
     }
 }
 

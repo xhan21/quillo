@@ -8,7 +8,8 @@ import Carbon
 enum KotobaMain {
     @MainActor static func main() {
         if CommandLine.arguments.contains("--diagnostics") {
-            print("Quillo 0.1.1 / \(ProcessInfo.processInfo.operatingSystemVersionString)")
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+            print("Quillo \(version) / \(ProcessInfo.processInfo.operatingSystemVersionString)")
             for language in CaptionLanguage.allCases {
                 let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language.speechLocale))
                 print("\(language.rawValue): on-device=\(recognizer?.supportsOnDeviceRecognition ?? false), available=\(recognizer?.isAvailable ?? false)")

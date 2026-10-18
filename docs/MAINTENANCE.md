@@ -37,6 +37,14 @@
 
 資料別の用語辞書は実装済みです。形式・保存先・字幕と要約への適用はGLOSSARIES.mdを参照してください。教材本文・発表者メモ・個人の辞書をGitHubへ入れないでください。Mac上の既存辞書を確認してから必要な語だけ追加し、同じIDで更新します。
 
+## 言語の動作確認
+
+言語の処理を変更した場合は、通常の回帰テストに加えて次の確認を行います。どちらも架空の文章を使い、マイクや他アプリの画面にはアクセスしません。
+
+- `zsh Tools/build-language-check.sh`で作成した`build/QuilloLanguageCheck.app`を開く。同じ設定画面で16通りを順に切り替え、実際のApple Translationと中国語の字体変換を確認。結果は`/private/tmp/quillo-caption-matrix.json`。初回は翻訳データの準備後に再実行する。
+- `build/language-coverage-tests --live`：4言語のサンプル画像をVisionで読み取り、ローカルOllamaで各4言語の要約を生成。結果は`/private/tmp/quillo-summary-matrix.json`。
+- 上記はマイクの言語別認識精度の確認ではない。音声データの準備状態・実際の音声認識は別に記録する。
+
 ## 開発と配布手順
 
 1. 現在のコード、未保存の変更、CHANGELOGを確認する。
