@@ -4,24 +4,57 @@ import NaturalLanguage
 @main enum LanguageCoverageTests {
     @MainActor static func main() async throws {
         setbuf(stdout, nil); _ = NSApplication.shared
-        // Recognition callbacks exercise every mode without microphone access.
+        // Typed captions retain all four languages; only microphone input is restricted.
         let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
         defer { model.shutdown() }
+        precondition(CaptionLanguage.speechInputLanguages == [.japanese, .english])
+        model.slides.configure(source: .traditionalChinese, target: .english)
+        model.setSpeechLanguage(.english)
+        precondition(model.speechLanguage == .english && model.sourceLanguage == .english)
+        precondition(model.slides.source == .traditionalChinese, "Spoken language must not overwrite the material language")
+        model.setSpeechLanguage(.chinese)
+        precondition(model.speechLanguage == .english && model.sourceLanguage == .english)
+
+        model.isListening = true
+        model.speech.onText?(.init(segmentID: UUID(), text: "This class starts at 9."), false)
+        let captionSession = model.translationSessionID
+        for material in CaptionLanguage.allCases {
+            model.slides.configure(source: material, target: model.targetLanguage)
+            precondition(model.isListening && model.sourceText == "This class starts at 9.")
+            precondition(model.translationSessionID == captionSession && model.speechLanguage == .english)
+        }
+        model.stopMic()
+        model.targetLanguage = .chinese; model.languageChanged()
+        precondition(model.slides.source == .traditionalChinese && model.slides.target == .chinese)
+        model.sourceLanguage = .traditionalChinese; model.languageChanged()
+        model.typedText = "資訊與電腦"; model.sendTypedCaption()
+        precondition(model.translatedText == "资讯与电脑" && model.speechLanguage == .english)
+        model.useSpeechLanguageForCaptions()
+        precondition(model.sourceLanguage == .english && model.slides.source == .traditionalChinese)
+
+        // Reject unsupported microphone languages before permissions or engine startup.
+        let capture = SpeechCapture()
+        for language in [CaptionLanguage.chinese, .traditionalChinese] {
+            var stopped = false; var message = ""
+            capture.onStopped = { stopped = true }
+            capture.onStatus = { message = $0 }
+            await capture.start(language: language)
+            precondition(stopped && message.contains("日本語・英語"))
+        }
         for source in CaptionLanguage.allCases {
             for target in CaptionLanguage.allCases {
                 model.sourceLanguage = source; model.targetLanguage = target; model.languageChanged()
                 model.setCaptionMode(.bilingual)
                 let text = source.normalizeScript("資訊與電腦")
                 if source == target || model.convertsChineseScript {
-                    model.isListening = true
-                    model.speech.onText?(.init(segmentID: UUID(), text: text), false)
+                    model.typedText = text; model.sendTypedCaption()
                     precondition(model.sourceText == text)
                     if source != target {
                         precondition(model.translatedText == target.normalizeScript(text))
                         precondition(model.pendingTranslationCount == 0 && model.translationReady)
                     } else { precondition(!model.requiresTranslation) }
                     model.setCaptionMode(nil); model.setCaptionMode(.translationOnly)
-                    precondition(model.isListening && model.sourceText == text)
+                    precondition(!model.isListening && model.sourceText == text)
                     if source != target { precondition(!model.translationStatus.contains("原文のみ")) }
                     model.stopMic()
                 } else {
@@ -40,7 +73,7 @@ import NaturalLanguage
         precondition(model.translationSessionID == readySession && model.translationStatus.contains("翻訳の準備ができました"))
         // A delayed worker from an old configuration must not claim the new queue.
         await model.runTranslationWorker(expectedEpoch: -1, prepare: { preconditionFailure("Stale worker prepared") }, translate: { _ in preconditionFailure("Stale worker translated") })
-        print("PASS: 16 language routes, direct Chinese script conversion, original-only mode, fresh retry identity, stale worker rejection")
+        print("PASS: Japanese/English microphone policy, independent material languages, 16 typed language routes, direct Chinese script conversion, original-only mode, fresh retry identity, stale worker rejection")
 
         guard CommandLine.arguments.contains("--live") else { return }
         let service = LocalSlideSummarizer()

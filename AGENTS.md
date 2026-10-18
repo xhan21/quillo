@@ -7,7 +7,7 @@ Quillo (クイロ) is a native macOS teaching accessibility prototype, previousl
 - A local Mac app that overlays captions on existing presentation apps. No hosted website, slide editor, or presenter notes.
 - Speech captions update from partial recognition. Original only, translation only, and bilingual modes must switch without stopping capture or resetting the translation session. Keep regression coverage for this.
 - Spoken captions use on-device Apple Speech and Apple Translation. Material summaries use OCR text from a user-selected screen region and local Ollama. Keep these separate.
-- Japanese, English, Simplified Chinese, Traditional Chinese. Source/target settings are shared with material summaries.
+- Microphone input is Japanese or English only. Caption translation targets, typed captions, and material source/target languages retain Japanese, English, Simplified Chinese, and Traditional Chinese. Only the output language is shared with material summaries; spoken and material source languages are independent. Do not reintroduce Chinese microphone input without the owner's request.
 - Material output is a concise translated summary only, in a separate floating panel with a prominent localized heading. No full-translation mode, manual page turning, or scrolling controls. Reading order is automatic.
 - Subtitle and summary panels can be moved and resized. Fine controls belong in settings. Preserve existing preferences when updating.
 - Do not send audio, screen images, recognized text, or logs to cloud services as an implementation shortcut. The model service is fixed to loopback and rejects cloud models.

@@ -5,6 +5,8 @@ import Speech
 
 @MainActor
 final class AppModel: ObservableObject {
+    @Published private(set) var speechLanguage: CaptionLanguage = .japanese
+    // The current caption source may also be typed text in any of the four languages.
     @Published var sourceLanguage: CaptionLanguage = .japanese
     @Published var targetLanguage: CaptionLanguage = .english
     @Published private(set) var translationEnabled = true
@@ -100,7 +102,18 @@ final class AppModel: ObservableObject {
         refreshSpeechReadiness()
     }
     func refreshSpeechReadiness() {
-        speechLanguageReady = SFSpeechRecognizer(locale: Locale(identifier: sourceLanguage.speechLocale))?.supportsOnDeviceRecognition == true
+        speechLanguageReady = SFSpeechRecognizer(locale: Locale(identifier: speechLanguage.speechLocale))?.supportsOnDeviceRecognition == true
+    }
+    func setSpeechLanguage(_ language: CaptionLanguage) {
+        guard language.supportsSpeechInput else { return }
+        speechLanguage = language
+        useSpeechLanguageForCaptions()
+        refreshSpeechReadiness()
+    }
+    func useSpeechLanguageForCaptions() {
+        guard sourceLanguage != speechLanguage else { return }
+        sourceLanguage = speechLanguage
+        languageChanged()
     }
     private func glossaryChanged() {
         speech.contextualPhrases = glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
@@ -201,7 +214,9 @@ final class AppModel: ObservableObject {
         let state = "\(sourceLanguage.rawValue)|\(targetLanguage.rawValue)"
         guard state != languageState else { return }
         languageState = state
-        slides.configure(source: sourceLanguage, target: targetLanguage)
+        // Only the output language is shared. A spoken/typed source change must
+        // not change OCR language or stop the selected material capture.
+        slides.configure(source: slides.source, target: targetLanguage)
         stopMic(); stopDemo(); resetLiveCaption()
         speech.contextualPhrases = glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
         translationEpoch += 1; translationContinuation?.finish(); translationContinuation = nil
@@ -315,16 +330,18 @@ final class AppModel: ObservableObject {
 
     func toggleMic() {
         if isListening || isStartingMic { stopMic(); return }
+        useSpeechLanguageForCaptions()
         refreshSpeechReadiness()
         guard speechLanguageReady else {
-            status = "\(sourceLanguage.dictationName)の音声データが必要です。Macの「システム設定 → キーボード → 音声入力 → 言語」で追加し、取得後に再開してください。"
+            status = "\(speechLanguage.dictationName)の端末内音声認識を利用できません。Macの「システム設定 → キーボード → 音声入力 → 言語」を確認してください。"
             return
         }
         stopDemo(); resetLiveCaption()
         isStartingMic = true; isListening = true; captionKind = "マイク準備中"
         status = "マイクと音声認識の許可を確認しています。"; ensureOverlay()
         if requiresTranslation && !translationReady { prepareTranslation() }
-        micStartTask = Task { await speech.start(language: sourceLanguage) }
+        let language = speechLanguage
+        micStartTask = Task { await speech.start(language: language) }
     }
     func stopMic() {
         let wasActive = isListening || isStartingMic

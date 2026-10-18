@@ -23,6 +23,10 @@ final class SpeechCapture {
 
     func start(language: CaptionLanguage) async {
         stop(notify: false)
+        guard language.supportsSpeechInput else {
+            onStatus?("音声入力は日本語・英語に対応しています。")
+            onStopped?(); return
+        }
         generation += 1
         let startGeneration = generation
         let speechPermission = await withCheckedContinuation { continuation in
@@ -40,7 +44,7 @@ final class SpeechCapture {
             onStopped?(); return
         }
         guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language.speechLocale)), recognizer.supportsOnDeviceRecognition else {
-            onStatus?("\(language.dictationName)の音声データが必要です。Macの「システム設定 → キーボード → 音声入力 → 言語」で追加し、取得後に再開してください。文字入力・資料要約は使えます。")
+            onStatus?("\(language.dictationName)の端末内音声認識を利用できません。Macの「システム設定 → キーボード → 音声入力 → 言語」を確認してください。文字入力・資料要約は使えます。")
             onStopped?(); return
         }
         self.recognizer = recognizer

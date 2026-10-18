@@ -23,6 +23,8 @@ struct VisibleCaption {
 
 enum CaptionLanguage: String, CaseIterable, Identifiable {
     case japanese = "ja", english = "en", chinese = "zh-Hans", traditionalChinese = "zh-Hant"
+    static let speechInputLanguages: [CaptionLanguage] = [.japanese, .english]
+    var supportsSpeechInput: Bool { Self.speechInputLanguages.contains(self) }
     var id: String { rawValue }
     var name: String { switch self { case .japanese: return "日本語"; case .english: return "English"; case .chinese: return "中文（簡体字）"; case .traditionalChinese: return "中文（繁體字）" } }
     var speechLocale: String { switch self { case .japanese: return "ja-JP"; case .english: return "en-US"; case .chinese: return "zh-CN"; case .traditionalChinese: return "zh-TW" } }

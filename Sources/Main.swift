@@ -10,7 +10,7 @@ enum KotobaMain {
         if CommandLine.arguments.contains("--diagnostics") {
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
             print("Quillo \(version) / \(ProcessInfo.processInfo.operatingSystemVersionString)")
-            for language in CaptionLanguage.allCases {
+            for language in CaptionLanguage.speechInputLanguages {
                 let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language.speechLocale))
                 print("\(language.rawValue): on-device=\(recognizer?.supportsOnDeviceRecognition ?? false), available=\(recognizer?.isAvailable ?? false)")
             }

@@ -25,7 +25,7 @@ struct ControlView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if section == 0 {
-                        languageCard
+                        LanguageSettingsCard(model: model, slides: model.slides) { section = 1; appearanceSection = 2 }
                         speechCard
                         SlideTranslationCard(model: model.slides)
                         Text("学生に見せるときは、資料・字幕・要約を含む画面全体を投影・共有してください。")
@@ -66,31 +66,6 @@ struct ControlView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshSpeechReadiness() }
         .sheet(isPresented: $model.helpVisible) { HelpView() }
     }
-    private var languageCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("使う言語", systemImage: "globe").font(.system(size: 15, weight: .semibold))
-            HStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("話す・資料の言語").font(.system(size: 11)).foregroundStyle(.secondary)
-                    Picker("話す・資料の言語", selection: $model.sourceLanguage) { ForEach(CaptionLanguage.allCases) { Text($0.name).tag($0) } }
-                        .labelsHidden().disabled(model.isListening || model.isStartingMic).onChange(of: model.sourceLanguage) { _, _ in model.languageChanged() }
-                }
-                Image(systemName: "arrow.right").foregroundStyle(.secondary).padding(.top, 18)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("表示する言語").font(.system(size: 11)).foregroundStyle(.secondary)
-                    Picker("表示する言語", selection: $model.targetLanguage) { ForEach(CaptionLanguage.allCases) { Text($0.name).tag($0) } }
-                        .labelsHidden().onChange(of: model.targetLanguage) { _, _ in model.languageChanged() }
-                }
-            }
-            Text("音声字幕と資料の要約に共通です。言語を変えたら、資料の画面を選び直してください。")
-                .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Divider()
-            HStack {
-                GlossaryPicker(store: model.glossary).disabled(model.isListening || model.isStartingMic)
-                Button("用語を確認") { section = 1; appearanceSection = 2 }.font(.system(size: 11))
-            }
-        }.card()
-    }
     private var captionMode: Binding<String> {
         Binding(get: { model.translationEnabled ? model.displayMode.rawValue : "original" }, set: { value in
             model.setCaptionMode(CaptionDisplayMode(rawValue: value))
@@ -117,7 +92,7 @@ struct ControlView: View {
             }.pickerStyle(.segmented).labelsHidden()
             Text(model.status).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if !model.speechLanguageReady {
-                Text("\(model.sourceLanguage.dictationName)の音声データが未準備です。Macの「システム設定 → キーボード → 音声入力 → 言語」で追加し、ダウンロードの完了を確認してください。文字入力・資料要約は使えます。")
+                Text("\(model.speechLanguage.dictationName)の端末内音声認識を利用できません。Macの「システム設定 → キーボード → 音声入力 → 言語」を確認してください。文字入力・資料要約は使えます。")
                     .font(.system(size: 11)).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
             }
             if model.requiresTranslation {
@@ -171,6 +146,10 @@ struct ControlView: View {
     private var inputCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("文字を入力して字幕を確認").font(.system(size: 11)).foregroundStyle(.secondary)
+            Picker("文字入力の言語", selection: $model.sourceLanguage) {
+                ForEach(CaptionLanguage.allCases) { Text($0.name).tag($0) }
+            }.disabled(model.isListening || model.isStartingMic)
+                .onChange(of: model.sourceLanguage) { _, _ in model.languageChanged() }
             HStack {
                 TextField("字幕にしたい文章", text: $model.typedText).textFieldStyle(.roundedBorder).onSubmit { model.sendTypedCaption() }.accessibilityLabel("字幕にする文章")
                 Button("表示") { model.sendTypedCaption() }.disabled(model.typedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -190,6 +169,52 @@ struct ControlView: View {
             Text("全文は「テキストで保存」で取り出せます。保存しなければ、ログは終了時に消えます。")
                 .font(.system(size: 10)).foregroundStyle(.secondary)
         }
+    }
+}
+
+private struct LanguageSettingsCard: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var slides: SlideTranslationModel
+    let showGlossary: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("言語の設定", systemImage: "globe").font(.system(size: 15, weight: .semibold))
+            HStack(spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Label("話す言語", systemImage: "mic").font(.system(size: 12, weight: .medium))
+                        Picker("話す言語", selection: Binding(get: { model.speechLanguage }, set: { model.setSpeechLanguage($0) })) {
+                            ForEach(CaptionLanguage.speechInputLanguages) { Text($0.name).tag($0) }
+                        }.labelsHidden().disabled(model.isListening || model.isStartingMic)
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Label("資料の言語", systemImage: "doc.text").font(.system(size: 12, weight: .medium))
+                        Picker("資料の言語", selection: Binding(get: { slides.source }, set: { slides.configure(source: $0, target: model.targetLanguage) })) {
+                            ForEach(CaptionLanguage.allCases) { Text($0.name).tag($0) }
+                        }.labelsHidden()
+                    }
+                }.frame(maxWidth: .infinity)
+                Image(systemName: "arrow.right").font(.system(size: 18)).foregroundStyle(Color.kotobaGreen)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("学生に見せる言語").font(.system(size: 12, weight: .semibold))
+                    Picker("学生に見せる言語", selection: $model.targetLanguage) {
+                        ForEach(CaptionLanguage.allCases) { Text($0.name).tag($0) }
+                    }.labelsHidden().onChange(of: model.targetLanguage) { _, _ in model.languageChanged() }
+                    Text("字幕の翻訳・資料の要約に共通")
+                        .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Text("音声入力は日本語・英語。資料と表示は中国語（簡体字・繁体字）も選べます。")
+                .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("資料の言語・学生に見せる言語を変えたら、資料の画面を選び直してください。")
+                .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Divider()
+            HStack {
+                GlossaryPicker(store: model.glossary).disabled(model.isListening || model.isStartingMic)
+                Button("用語を確認", action: showGlossary).font(.system(size: 11))
+            }
+        }.card()
     }
 }
 
@@ -268,7 +293,7 @@ struct HelpView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack { Text("授業での使い方").font(.system(size: 22, weight: .semibold)); Spacer(); Button("閉じる") { dismiss() } }
-            instruction("1", "言語を選ぶ", "「授業」で、話す・資料の言語と、学生に表示する言語を選びます。日本語・英語・中国語（簡体字／繁体字）に対応しています。")
+            instruction("1", "言語を選ぶ", "「言語の設定」で、話す言語・資料の言語と、学生に見せる言語を選びます。音声入力は日本語・英語。資料と表示は中国語（簡体字／繁体字）も選べます。学生に見せる言語は、字幕の翻訳・資料の要約で共通です。")
             instruction("2", "音声字幕を使う", "「話して字幕を出す」で開始します。翻訳の初回だけ言語データの準備が必要です。原文のみ・翻訳のみ・両方を選べます。長い発話は自動で最新の行に進みます。")
             instruction("3", "資料の要約を使う", "「資料の画面を選ぶ」で資料のウィンドウを選択し、プレビューで資料の部分をドラッグします。選んだ文章の要点を、表示する言語で短くまとめます。図そのものは説明しません。")
             instruction("4", "見た目を整えて投影する", "字幕・要約は背景をドラッグして移動、右下のつまみでサイズを変えられます。「設定」で文字サイズ・背景・位置固定を調整します。学生には資料と字幕・要約が入る画面全体を共有し、この設定画面は別画面に置くか閉じてください。")
