@@ -66,6 +66,10 @@ PowerPointの字幕翻訳は便利ですが、私の授業環境では、次の�
 - [動作確認の結果と未確認の範囲](docs/VALIDATION.md)
 - [開発・更新を続ける方法](docs/MAINTENANCE.md) ／ [変更履歴](CHANGELOG.md)
 
+## 開発について
+
+コードは、韓の指示のもと、助手として利用しているChatGPTが生成・修正しています。
+
 ## 参考・ライセンス
 
 - [commentable](https://github.com/TetsuakiBaba/commentable)：他のアプリに重ねる使い方とウィンドウ構成を参考にしました。Quilloは独立したSwift製アプリです。
