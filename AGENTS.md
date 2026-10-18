@@ -20,6 +20,6 @@ Quillo (クイロ) is a native macOS teaching accessibility prototype, previousl
 - Preserve third-party notices and the distinction between commentable as design inspiration and the adapted reading-order algorithm from class-material-translator.
 - Verify the build and signature before installation. Quit the running app through the approved app-control tools before replacing it. Do not automatically start microphone capture or select a new screen-sharing target.
 - Install the personal Mac copy at /Applications/Quillo.app when an update/install is requested. Explain when a restart requires capture to be selected again.
-- Do not commit build outputs, models, personal teaching material, recordings, screen captures, transcripts, credentials, or local reference copies.
+- Do not commit build outputs, models, personal teaching material, recordings, private screen captures, transcripts, credentials, or local reference copies. When the user requests documentation screenshots, use only inspected captures of synthetic demo content, under docs/images/, and describe what was actually verified. Do not represent typed-input translation as a microphone test.
 - Record the outcome and relevant validation in CHANGELOG.md and docs/VALIDATION.md so another chat can continue. Commit only the task's changes. Follow the user's current request for GitHub publishing and releases.
 - Updates are on request. The owner chose not to schedule automatic maintenance. Do not silently replace models, download large model files, update macOS, or add an auto-update service.
