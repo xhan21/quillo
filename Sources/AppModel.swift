@@ -1,0 +1,312 @@
+import SwiftUI
+import AppKit
+import Translation
+
+@MainActor
+final class AppModel: ObservableObject {
+    @Published var sourceLanguage: CaptionLanguage = .japanese
+    @Published var targetLanguage: CaptionLanguage = .english
+    @Published private(set) var translationEnabled = true
+    // Full current recognition result. Only the viewport is limited to fitting lines.
+    @Published private(set) var sourceText = ""
+    @Published private(set) var translatedText = ""
+    @Published var captionKind = "サンプル字幕"
+    @Published var status = "「字幕を表示」で、いつもの資料に字幕を重ねられます。"
+    @Published var translationStatus = "翻訳するには、最初に言語を準備します。"
+    @Published var translationReady = false
+    @Published var preparingTranslation = false
+    @Published var translationConfiguration: TranslationSession.Configuration?
+    @Published var isListening = false
+    @Published var isStartingMic = false
+    @Published var isDemoPlaying = false
+    @Published var overlayVisible = false
+    @Published var positionLocked = false
+    @Published var appearance = CaptionAppearance.load() { didSet { appearance.save() } }
+    @Published var displayMode = CaptionDisplayMode(rawValue: UserDefaults.standard.string(forKey: "captionDisplayMode") ?? "") ?? .bilingual {
+        didSet { UserDefaults.standard.set(displayMode.rawValue, forKey: "captionDisplayMode"); updateAppearance() }
+    }
+    @Published private(set) var translationUpdating = false
+    @Published private(set) var liveTranslationFailed = false
+    @Published var typedText = ""
+    @Published var logs: [TranscriptLine] = []
+    @Published var selectedScreen = 0
+    @Published var helpVisible = false
+    var screens: [NSScreen] { NSScreen.screens }
+    var overlay: OverlayController?
+    var showControlWindow: (() -> Void)?
+    let speech = SpeechCapture()
+    let slides = SlideTranslationModel()
+    private var demoTask: Task<Void, Never>?
+    private var micStartTask: Task<Void, Never>?
+    private var translationContinuation: AsyncStream<Void>.Continuation?
+    private var translationEpoch = 0
+    private var contentGeneration = 0
+    private var languageState = "ja|en"
+    private var mailbox = TranslationMailbox()
+    private var currentID: UUID?
+    private var revisions: [UUID: Int] = [:]
+    private var translatedRevisions: [UUID: Int] = [:]
+    private var submitted: [UUID: TranslationJob] = [:]
+    // Internal read-only diagnostics used by the integration tests.
+    var pendingTranslationCount: Int { mailbox.count }
+    var requiresTranslation: Bool { translationEnabled && sourceLanguage != targetLanguage }
+    var visibleCaption: VisibleCaption {
+        let size = captionLayoutSize
+        let latest = CaptionViewport.latest(source: sourceText, translation: translatedText,
+            showsSource: !requiresTranslation || displayMode == .bilingual, showsTranslation: requiresTranslation,
+            style: appearance, width: size.width, height: size.height)
+        let waiting = liveTranslationFailed ? "翻訳を再準備してください" : nil
+        return VisibleCaption(source: latest.source, translation: latest.translation, translates: requiresTranslation,
+            mode: displayMode, ready: translationReady, waiting: waiting ?? (requiresTranslation && !sourceText.isEmpty && latest.translation.isEmpty ? (translationReady ? "翻訳しています…" : "翻訳を準備してください") : nil))
+    }
+    var liveLabel: String {
+        if isDemoPlaying { return "ライブ表示のデモ" }
+        if requiresTranslation && liveTranslationFailed { return "翻訳を再準備" }
+        if translationUpdating { return translationReady ? "翻訳を更新中…" : "翻訳を準備中…" }
+        return isListening ? "ライブ更新" : "ライブ字幕"
+    }
+    var minimumPanelHeight: Double {
+        let source = !requiresTranslation || displayMode == .bilingual
+        let total = 76 + (source ? CaptionTypesetting.lineHeight(appearance.sourceFontSize, weight: .medium) : 0)
+            + (requiresTranslation ? CaptionTypesetting.lineHeight(appearance.translationFontSize) : 0)
+        return max(110, ceil(total / 10) * 10)
+    }
+    var captionLayoutSize: NSSize {
+        let screen = overlay?.panel.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
+        let source = !requiresTranslation || displayMode == .bilingual
+        let compact = 76 + (source ? 2 * CaptionTypesetting.lineHeight(appearance.sourceFontSize, weight: .medium) : 0)
+            + (requiresTranslation ? 2 * CaptionTypesetting.lineHeight(appearance.translationFontSize) : 0)
+        let height = appearance.automaticHeight ? compact : appearance.height
+        return NSSize(width: min(appearance.width, visible.width - 24), height: min(visible.height - 24, max(minimumPanelHeight, height)))
+    }
+
+    init() {
+        speech.onText = { [weak self] snapshot, final in self?.handleSpeech(snapshot, final: final) }
+        speech.onStatus = { [weak self] message in self?.status = message }
+        speech.onStarted = { [weak self] in self?.isStartingMic = false }
+        speech.onStopped = { [weak self] in self?.isListening = false; self?.isStartingMic = false }
+        showSample()
+    }
+    func toggleOverlay() { overlayVisible.toggle(); if overlayVisible { overlay?.show() } else { overlay?.hide() } }
+    func ensureOverlay() { if !overlayVisible { overlayVisible = true; overlay?.show() } }
+    func toggleLock() { positionLocked.toggle(); overlay?.updateInteraction() }
+    func updateAppearance() {
+        var bounded = appearance.normalized(); bounded.height = max(bounded.height, minimumPanelHeight)
+        if appearance != bounded { appearance = bounded }
+        overlay?.refreshSize()
+    }
+    private func resetLiveCaption() {
+        contentGeneration += 1; mailbox.removeAll(); revisions.removeAll(); translatedRevisions.removeAll(); submitted.removeAll()
+        currentID = nil; sourceText = ""; translatedText = ""; translationUpdating = false; liveTranslationFailed = false
+    }
+    private func showSample() {
+        let sample = SampleCaption.examples[0]
+        sourceText = sample.text(sourceLanguage); translatedText = sample.text(targetLanguage); captionKind = "サンプル字幕"
+    }
+
+    // Every partial result reaches the original caption synchronously. No silence
+    // timer, translation completion, or reading-duration timer gates this path.
+    private func receive(_ text: String, id: UUID, kind: String) {
+        let clean = captionText(text)
+        guard !clean.isEmpty else { return }
+        let index = logs.firstIndex { $0.id == id }
+        let changed = index.map { logs[$0].source != clean } ?? true
+        if currentID != id {
+            currentID = id; translatedText = ""; liveTranslationFailed = false
+        }
+        sourceText = clean; captionKind = kind; mailbox.preferredID = id
+        if let index {
+            logs[index].source = clean
+            if changed { logs[index].translationIncomplete = requiresTranslation }
+        } else {
+            logs.append(TranscriptLine(id: id, time: Date(), source: clean, translation: "", kind: kind == "文字入力" ? "入力" : "音声", translationIncomplete: requiresTranslation))
+        }
+        if changed { revisions[id, default: 0] += 1; liveTranslationFailed = false }
+        translationUpdating = requiresTranslation && translatedRevisions[id] != revisions[id]
+        if requiresTranslation { submitTranslation(id: id, text: clean) }
+    }
+    private func handleSpeech(_ snapshot: SpeechSnapshot, final: Bool) {
+        guard isListening || isStartingMic else { return }
+        isStartingMic = false
+        receive(snapshot.text, id: snapshot.segmentID, kind: "マイク字幕")
+        // Partial and final results update the same transcript entry. Finalization
+        // needs no display delay; the last pending translation already has full text.
+    }
+    private func submitTranslation(id: UUID, text: String) {
+        guard let revision = revisions[id] else { return }
+        let job = TranslationJob(cueID: id, revision: revision, generation: contentGeneration, text: text)
+        guard submitted[id] != job else { return }
+        submitted[id] = job; mailbox.submit(job); translationContinuation?.yield(())
+    }
+
+    // nil selects original-only. A display change must never reset capture, the
+    // current utterance, or a prepared/in-flight translation session.
+    func setCaptionMode(_ mode: CaptionDisplayMode?) {
+        translationEnabled = mode != nil
+        if let mode { displayMode = mode }
+        updateAppearance()
+        translationUpdating = requiresTranslation && currentID.map { translatedRevisions[$0] != revisions[$0] } == true
+        guard requiresTranslation, let id = currentID else { return }
+        if translationUpdating {
+            if let index = logs.firstIndex(where: { $0.id == id }) { logs[index].translationIncomplete = true }
+            submitTranslation(id: id, text: sourceText)
+        }
+        // Original-only may have started before a session existed. Resume from
+        // the current text even if the speaker has already stopped talking.
+        if !translationReady || liveTranslationFailed { prepareTranslation() }
+    }
+
+    func languageChanged() {
+        let state = "\(sourceLanguage.rawValue)|\(targetLanguage.rawValue)"
+        guard state != languageState else { return }
+        languageState = state
+        slides.configure(source: sourceLanguage, target: targetLanguage)
+        stopMic(); stopDemo(); resetLiveCaption()
+        translationEpoch += 1; translationContinuation?.finish(); translationContinuation = nil
+        translationConfiguration = nil; translationReady = false; preparingTranslation = false
+        translationStatus = requiresTranslation ? "言語を変更しました。「翻訳を準備」を押してください。" : "原文字幕のみ表示します。"
+        showSample(); updateAppearance()
+    }
+    func prepareTranslation() {
+        guard requiresTranslation, !preparingTranslation else { return }
+        translationEpoch += 1; translationContinuation?.finish(); translationContinuation = nil
+        submitted.removeAll()
+        // Retry incomplete final transcript translations as well as the live text.
+        for line in logs where revisions[line.id] != nil && line.translationIncomplete {
+            submitTranslation(id: line.id, text: line.source)
+        }
+        liveTranslationFailed = false
+        preparingTranslation = true; translationReady = false
+        translationStatus = "言語を準備しています。初回はmacOSからダウンロードの確認が表示されます。"
+        if translationConfiguration != nil { translationConfiguration?.invalidate() }
+        else { translationConfiguration = TranslationSession.Configuration(source: Locale.Language(identifier: sourceLanguage.rawValue), target: Locale.Language(identifier: targetLanguage.rawValue)) }
+    }
+    func runTranslation(_ session: TranslationSession) async {
+        await runTranslationWorker(prepare: { try await session.prepareTranslation() }, translate: { try await session.translate($0).targetText })
+    }
+    // Shared production/test worker: one translation in flight, one latest pending
+    // hypothesis per utterance. Wakeups are bounded too, so speech cannot flood it.
+    func runTranslationWorker(prepare: () async throws -> Void, translate: (String) async throws -> String) async {
+        let epoch = translationEpoch
+        let stream = AsyncStream<Void>(bufferingPolicy: .bufferingNewest(1)) { translationContinuation = $0 }
+        defer {
+            if epoch == translationEpoch {
+                translationContinuation?.finish(); translationContinuation = nil
+                translationReady = false; preparingTranslation = false
+            }
+        }
+        do {
+            try await prepare()
+            guard epoch == translationEpoch, !Task.isCancelled else { return }
+            preparingTranslation = false; translationReady = true
+            translationStatus = "準備完了 · このMac内で、話の途中から翻訳を更新します。"
+            translationContinuation?.yield(())
+            var lastStart: ContinuousClock.Instant?
+            for await _ in stream {
+                while !mailbox.isEmpty {
+                    guard epoch == translationEpoch, !Task.isCancelled else { return }
+                    // Rate limit starts, not recognition updates. A continuous
+                    // stream of speech cannot postpone translation indefinitely.
+                    if let lastStart {
+                        try await Task.sleep(until: lastStart.advanced(by: .milliseconds(180)), clock: .continuous)
+                    }
+                    guard epoch == translationEpoch, !Task.isCancelled else { return }
+                    guard let job = mailbox.takeNext() else { break }
+                    lastStart = .now
+                    do {
+                        let translated = try await translate(job.text)
+                        guard epoch == translationEpoch, !Task.isCancelled else { return }
+                        guard job.generation == contentGeneration else { continue }
+                        guard !captionText(translated).isEmpty else { throw NSError(domain: "KotobaTranslation", code: 1) }
+                        acceptTranslation(translated, for: job)
+                    } catch {
+                        guard epoch == translationEpoch, !Task.isCancelled else { return }
+                        guard job.generation == contentGeneration else { continue }
+                        if currentID == job.cueID && revisions[job.cueID] == job.revision {
+                            liveTranslationFailed = true; translationUpdating = false
+                        }
+                        translationStatus = "翻訳できない文章がありました。字幕の更新は続けます。「翻訳を準備」で再試行できます。"
+                    }
+                }
+            }
+        } catch {
+            guard epoch == translationEpoch, !Task.isCancelled else { return }
+            translationReady = false; preparingTranslation = false
+            translationStatus = "言語の準備を完了できませんでした。ネット接続と言語のダウンロードを確認して再試行してください。"
+        }
+    }
+    private func acceptTranslation(_ text: String, for job: TranslationJob) {
+        guard job.revision > translatedRevisions[job.cueID, default: 0] else { return }
+        translatedRevisions[job.cueID] = job.revision
+        let incomplete = revisions[job.cueID] != job.revision
+        if let index = logs.firstIndex(where: { $0.id == job.cueID }) {
+            logs[index].translation = text; logs[index].translationIncomplete = incomplete
+        }
+        guard currentID == job.cueID else { return } // A previous utterance may only update its log.
+        translatedText = text; translationUpdating = requiresTranslation && incomplete; liveTranslationFailed = false
+    }
+
+    func toggleMic() {
+        if isListening || isStartingMic { stopMic(); return }
+        stopDemo(); resetLiveCaption()
+        isStartingMic = true; isListening = true; captionKind = "マイク準備中"
+        status = "マイクと音声認識の許可を確認しています。"; ensureOverlay()
+        if requiresTranslation && !translationReady { prepareTranslation() }
+        micStartTask = Task { await speech.start(language: sourceLanguage) }
+    }
+    func stopMic() {
+        let wasActive = isListening || isStartingMic
+        micStartTask?.cancel(); micStartTask = nil
+        speech.stop(notify: wasActive)
+        isListening = false; isStartingMic = false
+        if wasActive { status = "マイクを停止しました。最後の発話の翻訳は更新を続けます。" }
+    }
+    func sendTypedCaption() {
+        let text = captionText(typedText)
+        guard !text.isEmpty else { return }
+        stopMic(); stopDemo()
+        receive(text, id: UUID(), kind: "文字入力")
+        if requiresTranslation && !translationReady { prepareTranslation() }
+        typedText = ""; ensureOverlay()
+        status = "入力した原文をすぐ表示しました。長文は末尾の行を表示し、全文をログに保持します。"
+    }
+    func toggleDemo() {
+        if isDemoPlaying { stopDemo(); return }
+        stopMic(); resetLiveCaption(); isDemoPlaying = true; ensureOverlay()
+        status = "話の途中で字幕が伸びる表示デモです。準備済みの文章を使い、マイクは使用しません。"
+        demoTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                for sample in SampleCaption.examples {
+                    let original = Array(sample.text(self.sourceLanguage)), translated = Array(sample.text(self.targetLanguage))
+                    self.captionKind = "サンプル字幕"; self.sourceText = ""; self.translatedText = ""
+                    for count in 1...original.count {
+                        guard !Task.isCancelled else { return }
+                        self.sourceText = String(original.prefix(count))
+                        self.translatedText = String(translated.prefix(Int(Double(max(0, count - 2)) / Double(original.count) * Double(translated.count))))
+                        try? await Task.sleep(for: .milliseconds(140))
+                    }
+                    guard !Task.isCancelled else { return }
+                    self.translatedText = String(translated)
+                    try? await Task.sleep(for: .milliseconds(700))
+                }
+            }
+        }
+    }
+    func stopDemo() {
+        guard isDemoPlaying else { return }
+        isDemoPlaying = false; demoTask?.cancel(); demoTask = nil; status = "デモを停止しました。"
+    }
+    func clearCaption() { stopMic(); stopDemo(); resetLiveCaption(); captionKind = "字幕待機中"; overlay?.refreshSize() }
+    func exportTranscript() {
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.plainText]; panel.nameFieldStringValue = "Quillo-字幕ログ.txt"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let formatter = DateFormatter(); formatter.dateFormat = "HH:mm:ss"
+        let text = "Quillo · 字幕ログ\n翻訳未完了の行には印を付けています。\n\n" + logs.map {
+            "[\(formatter.string(from: $0.time))] \($0.kind)\n\($0.source)\n\($0.translation)" + ($0.translationIncomplete ? "\n（翻訳未完了・途中の結果）" : "")
+        }.joined(separator: "\n\n")
+        do { try text.write(to: url, atomically: true, encoding: .utf8); status = "字幕ログを保存しました。" } catch { status = "保存できませんでした：\(error.localizedDescription)" }
+    }
+    func shutdown() { slides.shutdown(); stopMic(); stopDemo(); translationContinuation?.finish(); overlay?.savePosition() }
+}

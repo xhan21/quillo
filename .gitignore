@@ -1,0 +1,10 @@
+.DS_Store
+/build/
+/reference/
+/VALIDATION.md
+*.app/
+*.zip
+*.log
+.env
+.env.*
+!.env.example
