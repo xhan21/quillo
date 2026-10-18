@@ -77,6 +77,24 @@ import AppKit
         try await eventually { !model.busy }
         precondition(model.text.isEmpty && model.status.contains("Ollama"), "Show an actionable error instead of pretending to summarize")
         model.clear()
+        let dictionary = MaterialGlossary(id: "summary-test", name: "Test", entries: [.init(terms: ["ja": "用語", "en": "term"])])
+        model.update(source: "用語を説明します。", target: .english, active: true)
+        try await eventually { service.calls.count == 1 }
+        precondition(service.calls[0].request.terminology.isEmpty)
+        model.setGlossary(dictionary, sourceLanguage: .japanese)
+        try await eventually { service.calls.count == 2 }
+        precondition(service.calls[1].request.terminology.contains("term"))
+        service.complete("Do not show the obsolete glossary result")
+        try await Task.sleep(for: .milliseconds(30))
+        precondition(model.text.isEmpty)
+        service.complete("A term.")
+        try await eventually { model.text == "A term." }
+        model.setGlossary(nil, sourceLanguage: .japanese)
+        try await eventually { service.calls.count == 1 }
+        precondition(service.calls[0].request.terminology.isEmpty, "Do not reuse a cache produced with a different glossary")
+        service.complete("A normal summary.")
+        try await eventually { model.text == "A normal summary." }
+        model.clear()
         print("PASS: local-only model validation, no truncation, stale result exclusion, stop cancellation, no per-frame requests, page cache, resize compaction, Traditional Chinese target, recoverable errors")
 
         if CommandLine.arguments.contains("--live") {

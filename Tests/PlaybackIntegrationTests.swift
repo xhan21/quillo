@@ -24,7 +24,7 @@ import AppKit
     }
     @MainActor static func main() async throws {
         _ = NSApplication.shared
-        let model = AppModel()
+        let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
         model.clearCaption(); model.isListening = true
         let originalMode = model.displayMode
         defer { model.displayMode = originalMode }
@@ -111,7 +111,7 @@ import AppKit
     }
 
     @MainActor static func modeSwitching() async throws {
-        let model = AppModel()
+        let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
         let originalMode = model.displayMode
         defer { model.displayMode = originalMode; model.shutdown() }
         model.clearCaption(); model.setCaptionMode(nil)

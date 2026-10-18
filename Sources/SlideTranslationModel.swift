@@ -114,7 +114,9 @@ final class SlideTranslationModel: ObservableObject {
         if let lastFrame { receive(lastFrame) }
     }
     func resummarize() { summary.invalidateCache(); refresh() }
+    func setGlossary(_ glossary: MaterialGlossary?) { summary.setGlossary(glossary, sourceLanguage: source) }
     private func updateSummary() {
+        summary.setSourceLanguage(source)
         summary.update(source: latestPage?.blocks.map(\.text).joined(separator: "\n\n") ?? "", target: target, active: isRunning)
     }
     func showTranslationPanel() {

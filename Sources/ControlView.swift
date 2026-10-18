@@ -16,7 +16,7 @@ struct ControlView: View {
                 Spacer()
                 Picker("画面", selection: $section) {
                     Text("授業").tag(0)
-                    Text("表示設定").tag(1)
+                    Text("設定").tag(1)
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
                 Button { model.helpVisible = true } label: { Image(systemName: "questionmark.circle").font(.system(size: 17)) }
                     .buttonStyle(.plain).accessibilityLabel("使い方")
@@ -31,11 +31,14 @@ struct ControlView: View {
                         Text("学生に見せるときは、資料・字幕・要約を含む画面全体を投影・共有してください。")
                             .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     } else {
-                        Picker("表示設定の対象", selection: $appearanceSection) {
+                        Picker("設定の対象", selection: $appearanceSection) {
                             Text("音声字幕").tag(0)
                             Text("資料の要約").tag(1)
+                            Text("用語辞書").tag(2)
                         }.pickerStyle(.segmented).labelsHidden()
-                        if appearanceSection == 0 { appearanceCard } else { SummaryAppearanceCard(model: model.slides) }
+                        if appearanceSection == 0 { appearanceCard }
+                        else if appearanceSection == 1 { SummaryAppearanceCard(model: model.slides) }
+                        else { GlossarySettings(store: model.glossary, isListening: model.isListening || model.isStartingMic) }
                         DisclosureGroup("動作確認・字幕ログ") {
                             VStack(alignment: .leading, spacing: 14) {
                                 HStack(spacing: 12) {
@@ -75,6 +78,11 @@ struct ControlView: View {
             }
             Text("音声字幕と資料の要約に共通です。言語を変えたら、資料の画面を選び直してください。")
                 .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Divider()
+            HStack {
+                GlossaryPicker(store: model.glossary).disabled(model.isListening || model.isStartingMic)
+                Button("用語を確認") { section = 1; appearanceSection = 2 }.font(.system(size: 11))
+            }
         }.card()
     }
     private var captionMode: Binding<String> {
@@ -237,7 +245,7 @@ struct HelpView: View {
             instruction("1", "言語を選ぶ", "「授業」で、話す・資料の言語と、学生に表示する言語を選びます。日本語・英語・中国語（簡体字／繁体字）に対応しています。")
             instruction("2", "音声字幕を使う", "「話して字幕を出す」で開始します。翻訳の初回だけ言語データの準備が必要です。原文のみ・翻訳のみ・両方を選べます。長い発話は自動で最新の行に進みます。")
             instruction("3", "資料の要約を使う", "「資料の画面を選ぶ」で資料のウィンドウを選択し、プレビューで資料の部分をドラッグします。選んだ文章の要点を、表示する言語で短くまとめます。図そのものは説明しません。")
-            instruction("4", "見た目を整えて投影する", "字幕・要約は背景をドラッグして移動、右下のつまみでサイズを変えられます。「表示設定」で文字サイズ・背景・位置固定を調整します。学生には資料と字幕・要約が入る画面全体を共有し、この設定画面は別画面に置くか閉じてください。")
+            instruction("4", "見た目を整えて投影する", "字幕・要約は背景をドラッグして移動、右下のつまみでサイズを変えられます。「設定」で文字サイズ・背景・位置固定を調整します。学生には資料と字幕・要約が入る画面全体を共有し、この設定画面は別画面に置くか閉じてください。")
             Divider()
             Text("閉じた設定画面は、メニューバーの吹き出し、Dockのアプリアイコン、または⌘ ,で開けます。字幕の表示切替は⌃⌥⌘ K、字幕の位置固定は⌃⌥⌘ Lです。")
                 .font(.system(size: 11)).foregroundStyle(.secondary)

@@ -36,6 +36,7 @@ final class AppModel: ObservableObject {
     var showControlWindow: (() -> Void)?
     let speech = SpeechCapture()
     let slides = SlideTranslationModel()
+    let glossary: GlossaryStore
     private var demoTask: Task<Void, Never>?
     private var micStartTask: Task<Void, Never>?
     private var translationContinuation: AsyncStream<Void>.Continuation?
@@ -81,12 +82,28 @@ final class AppModel: ObservableObject {
         return NSSize(width: min(appearance.width, visible.width - 24), height: min(visible.height - 24, max(minimumPanelHeight, height)))
     }
 
-    init() {
+    init(glossary: GlossaryStore? = nil) {
+        self.glossary = glossary ?? GlossaryStore()
+        self.glossary.onChange = { [weak self] in self?.glossaryChanged() }
+        speech.contextualPhrases = self.glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
+        slides.setGlossary(self.glossary.selected)
         speech.onText = { [weak self] snapshot, final in self?.handleSpeech(snapshot, final: final) }
         speech.onStatus = { [weak self] message in self?.status = message }
         speech.onStarted = { [weak self] in self?.isStartingMic = false }
         speech.onStopped = { [weak self] in self?.isListening = false; self?.isStartingMic = false }
         showSample()
+    }
+    private func glossaryChanged() {
+        speech.contextualPhrases = glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
+        slides.setGlossary(glossary.selected)
+        // Keep capture, original text and the prepared translation session alive.
+        // Reject the in-flight result and retranslate the current utterance only.
+        contentGeneration += 1; mailbox.removeAll(); submitted.removeAll()
+        revisions.removeAll(); translatedRevisions.removeAll()
+        guard let id = currentID else { return }
+        revisions[id] = 1; translationUpdating = requiresTranslation
+        if let index = logs.firstIndex(where: { $0.id == id }) { logs[index].translationIncomplete = requiresTranslation }
+        if requiresTranslation { submitTranslation(id: id, text: sourceText) }
     }
     func toggleOverlay() { overlayVisible.toggle(); if overlayVisible { overlay?.show() } else { overlay?.hide() } }
     func ensureOverlay() { if !overlayVisible { overlayVisible = true; overlay?.show() } }
@@ -163,6 +180,7 @@ final class AppModel: ObservableObject {
         languageState = state
         slides.configure(source: sourceLanguage, target: targetLanguage)
         stopMic(); stopDemo(); resetLiveCaption()
+        speech.contextualPhrases = glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
         translationEpoch += 1; translationContinuation?.finish(); translationContinuation = nil
         translationConfiguration = nil; translationReady = false; preparingTranslation = false
         translationStatus = requiresTranslation ? "言語を変更しました。「翻訳を準備」を押してください。" : "原文字幕のみ表示します。"
@@ -215,7 +233,8 @@ final class AppModel: ObservableObject {
                     guard let job = mailbox.takeNext() else { break }
                     lastStart = .now
                     do {
-                        let translated = try await translate(job.text)
+                        let terminology = GlossaryTranslation(source: job.text, language: sourceLanguage, target: targetLanguage, glossary: glossary.selected)
+                        let translated = try await terminology.translate(using: translate)
                         guard epoch == translationEpoch, !Task.isCancelled else { return }
                         guard job.generation == contentGeneration else { continue }
                         guard !captionText(translated).isEmpty else { throw NSError(domain: "KotobaTranslation", code: 1) }

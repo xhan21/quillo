@@ -11,7 +11,7 @@ Quillo (クイロ) is a native macOS teaching accessibility prototype, previousl
 - Material output is a concise translated summary only, in a separate floating panel with a prominent localized heading. No full-translation mode, manual page turning, or scrolling controls. Reading order is automatic.
 - Subtitle and summary panels can be moved and resized. Fine controls belong in settings. Preserve existing preferences when updating.
 - Do not send audio, screen images, recognized text, or logs to cloud services as an implementation shortcut. The model service is fixed to loopback and rejects cloud models.
-- A glossary per teaching material was deferred; do not add it without a new request.
+- Per-material glossaries are local user data. Keep them outside the public repository and app bundle. Preserve the selected glossary and include it in recognition hints, caption term protection, and summary context. See docs/GLOSSARIES.md.
 
 ## Implementation and release
 

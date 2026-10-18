@@ -14,11 +14,19 @@
 - 要約パネルの大きな翻訳済み見出し、ドラッグ、サイズ変更、配色、位置固定を実アプリで確認。
 - Quilloへの名称変更後、/Applications/Quillo.appから起動し、画面タイトル・Qの表示・メニュー名を確認。既存と同じアプリ識別子を使用。
 
+## 0.1.2 用語辞書
+
+- ローカルJSON辞書の読み込み、4言語の対訳と別名・読み方の表示、選択と保存を実アプリで確認。
+- Apple Translationの実字幕で、複数の専門用語を含む文に登録訳語が入り、一時識別子が残らないことを確認。ひらがなの読みを含む入力も登録訳語へ反映。
+- ローカルOllamaで辞書を使った英語・繁体字の短文要約を確認。繁体字出力に原語の表記が残る場合を再現し、入力で一致した用語だけを補正する処理を追加して再確認。
+- マイクを使った専門用語の認識率の比較は未実施。読み方は認識候補・文字列の別名として扱い、音声モデルの学習ではない。
+- ビルド・署名を検証し、/Applications/Quillo.appを0.1.2へ更新。個人の教材辞書はアプリ外のApplication Supportに保存。
+
 ## 自動テスト
 
-`zsh test.sh` のCoreTests、AppearanceTests、PlaybackTests、SlidePanelTests、SlideSummaryTests、SlideTests、PlaybackIntegrationTestsが全て成功。これには実Vision OCR、Unicode表示、長文の最新行への追従、翻訳待ちの集約、古い結果の除外、停止・消去、表示切替でのセッション維持、ローカルモデル限定、要約の短縮とキャッシュ、繁体字の扱いを含む。
+`zsh test.sh` のCoreTests、AppearanceTests、PlaybackTests、SlidePanelTests、SlideSummaryTests、SlideTests、PlaybackIntegrationTests、GlossaryTestsが全て成功。これには実Vision OCR、Unicode表示、長文の最新行への追従、翻訳待ちの集約、古い結果の除外、停止・消去、表示切替でのセッション維持、ローカルモデル限定、要約の短縮とキャッシュ、繁体字の扱いを含む。
 
-この一式は字幕の切替修正時に実行。名称変更は本体の翻訳処理を変更せず、ビルド・署名・実アプリUIを確認。
+0.1.2の用語辞書追加後に一式を実行。用語の重複・不正ファイル拒否、複合語優先、単語境界、別名、翻訳識別子の欠落・重複・改変による通常翻訳への復帰、選択保存、辞書切替時の古い字幕・要約の除外とキャッシュ無効化を含む。
 
 ## 未確認・制約
 

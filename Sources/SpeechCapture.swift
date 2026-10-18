@@ -4,6 +4,7 @@ import Speech
 
 @MainActor
 final class SpeechCapture {
+    var contextualPhrases: [String] = []
     var onText: ((SpeechSnapshot, Bool) -> Void)?
     var onStatus: ((String) -> Void)?
     var onStarted: (() -> Void)?
@@ -59,6 +60,7 @@ final class SpeechCapture {
         request.requiresOnDeviceRecognition = true
         request.addsPunctuation = true
         request.taskHint = .dictation
+        request.contextualStrings = Array(contextualPhrases.prefix(100))
         self.request = request
         let engine = AVAudioEngine()
         self.engine = engine
