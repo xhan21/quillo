@@ -1,5 +1,7 @@
 # Quillo（クイロ）
 
+**日本語** | [English](README.en.md)
+
 **授業の声を字幕に。スライドの内容を、短い翻訳付き要約に。**
 
 PowerPoint・Keynote・Canvaなど、いつもの発表画面に重ねて使うMacアプリです。

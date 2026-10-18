@@ -2,7 +2,7 @@
 
 ## 説明書の案内
 
-- [README](../README.md)：作った理由・機能・動作画面。短い箇条書きを中心に保つ。
+- [日本語README](../README.md) ／ [English README](../README.en.md)：作った理由・機能・動作画面。短い箇条書きを中心に保ち、機能・導入条件・確認範囲・開発者表記は両言語で揃える。
 - [導入手順](SETUP.md) ／ [使い方・困ったとき](USER_GUIDE.md)：利用者向け。
 - [内部の仕組み](ARCHITECTURE.md) ／ [用語辞書の形式](GLOSSARIES.md)：開発・拡張向け。
 - [確認記録](VALIDATION.md) ／ [変更履歴](../CHANGELOG.md)：実際に確認した範囲。
