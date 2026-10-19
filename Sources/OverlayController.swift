@@ -138,8 +138,8 @@ struct OverlayCaptionView: View {
                 Circle().fill(model.isListening ? Color.red.opacity(0.9) : style.translationForeground).frame(width: 5, height: 5)
                 Text(model.captionKind).font(.system(size: 10, weight: .medium))
                 Spacer()
-                Text(presentation.english?.continued == true ? "英文の続き" : model.liveLabel)
-                if presentation.english != nil { Text("読みやすさ優先") }
+                Text(presentation.reading?.continued == true ? "訳文の続き" : model.liveLabel)
+                if presentation.reading != nil { Text("読みやすさ優先") }
                 Text(model.sourceLanguage.name + (model.requiresTranslation ? " → " + model.targetLanguage.name : ""))
             }
             .font(.system(size: 10)).foregroundStyle(style.foreground.opacity(0.60)).lineLimit(1)
@@ -151,15 +151,15 @@ struct OverlayCaptionView: View {
                     .shadow(color: style.textShadow, radius: 1)
             }
             VStack(alignment: .leading, spacing: 4) {
-            if let english = presentation.english, !english.previous.isEmpty {
-                Text(english.previous).font(.system(size: english.previousFontSize))
+            if let reading = presentation.reading, !reading.previous.isEmpty {
+                Text(reading.previous).font(.system(size: reading.previousFontSize))
                     .foregroundStyle(style.translationForeground.opacity(0.70))
                     .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
                     .shadow(color: style.textShadow, radius: 1)
-                    .accessibilityLabel("Previous sentence: " + english.previous)
+                    .accessibilityLabel("Previous sentence: " + reading.previous)
             }
             if !caption.translation.isEmpty {
-                Text(caption.translation).font(.system(size: presentation.english?.fontSize ?? style.translationFontSize)).foregroundStyle(style.translationForeground)
+                Text(caption.translation).font(.system(size: presentation.reading?.fontSize ?? style.translationFontSize)).foregroundStyle(style.translationForeground)
                     .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
                     .shadow(color: style.textShadow, radius: 1)
             }
