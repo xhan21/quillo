@@ -118,6 +118,10 @@ struct ControlView: View {
             }.font(.system(size: 11)).buttonStyle(.bordered)
             Text(model.positionLocked ? "固定中は、字幕の下にあるスライドを操作できます。" : "字幕の背景をドラッグして移動、右下のつまみでサイズを変更できます。")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
+            Toggle("英語字幕を読みやすく表示（試用）", isOn: Binding(get: { model.readableEnglish }, set: { model.setReadableEnglish($0) }))
+                .toggleStyle(.switch).font(.system(size: 12))
+            Text("英訳を一文ごとに表示し、文字サイズを自動調整。余裕があれば直前の英文を薄く残します。途中訳の書き換えは約0.65秒ごと。オフで従来の表示に戻ります。")
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 24) {
                 ValueAdjustment(title: "原文の文字サイズ", value: $model.appearance.sourceFontSize, range: 14...90, unit: "pt")
                 ValueAdjustment(title: "翻訳の文字サイズ", value: $model.appearance.translationFontSize, range: 14...90, unit: "pt")
@@ -137,7 +141,7 @@ struct ControlView: View {
                 }.padding(.top, 12)
             }.font(.system(size: 11))
             HStack {
-                Text("長い発話は最新の行へ自動で進みます。").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("非常に長い英文は区切りから続きを表示。全文は字幕ログに残ります。").font(.system(size: 11)).foregroundStyle(.secondary)
                 Spacer()
                 Button("見た目を標準に戻す") { model.appearance = CaptionAppearance() }.font(.system(size: 10)).buttonStyle(.plain)
             }

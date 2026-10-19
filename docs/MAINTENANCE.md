@@ -20,7 +20,7 @@
 |---|---|
 | 起動、メニュー、設定画面 | Sources/Main.swift、ControlView.swift |
 | 音声認識とライブ字幕 | SpeechCapture.swift、AppModel.swift、CaptionPlayback.swift |
-| 字幕の表示・外観 | OverlayController.swift、CaptionAppearance.swift |
+| 字幕の表示・外観 | OverlayController.swift、CaptionAppearance.swift、EnglishCaptionReading.swift |
 | 画面選択・範囲指定・OCR | SlideCapture.swift、SlideRegionSelection.swift、SlideRegionEditing.swift、SlideAnalyzer.swift |
 | 資料の読み順・要約 | SlideReadingOrder.swift、SlideTranslationModel.swift、SlideSummary.swift |
 | 要約パネル・自動サイズ調整 | SlideTranslationPanel.swift、SlidePanelLayout.swift、SlidePanelPresentation.swift |
@@ -40,6 +40,8 @@
 資料別の用語辞書は実装済みです。形式・保存先・字幕と要約への適用はGLOSSARIES.mdを参照してください。教材本文・発表者メモ・個人の辞書をGitHubへ入れないでください。Mac上の既存辞書を確認してから必要な語だけ追加し、同じIDで更新します。
 
 ## 言語の動作確認
+
+英訳の読みやすさ表示を変更した場合は`EnglishCaptionReadingTests`と`PlaybackIntegrationTests`を実行します。`zsh Tools/build-reading-check.sh`で作る`build/QuilloReadingCheck.app`は、架空の日本語を実Apple Translationへ渡して旧表示と比較できます。途中認識を模した入力であり、マイクは使用しません。結果は`/private/tmp/quillo-english-reading-check.json`です。英文の意味を書き換える機能は未実装です。
 
 範囲編集を変更した場合は`SlideRegionEditingTests`に加え、`zsh Tools/build-region-check.sh`で作る`build/QuilloRegionCheck.app`で、移動・角と辺の拡縮・元に戻す・キャンセルを確認します。これは架空のスライドを使う画面で、他アプリの画面共有やマイクは使用しません。
 

@@ -131,29 +131,41 @@ struct OverlayCaptionView: View {
     @ObservedObject var model: AppModel
     var body: some View {
         let style = model.appearance
+        let presentation = model.captionPresentation
+        let caption = presentation.caption
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 7) {
                 Circle().fill(model.isListening ? Color.red.opacity(0.9) : style.translationForeground).frame(width: 5, height: 5)
                 Text(model.captionKind).font(.system(size: 10, weight: .medium))
                 Spacer()
-                Text(model.liveLabel)
+                Text(presentation.english?.continued == true ? "英文の続き" : model.liveLabel)
+                if presentation.english != nil { Text("読みやすさ優先") }
                 Text(model.sourceLanguage.name + (model.requiresTranslation ? " → " + model.targetLanguage.name : ""))
             }
             .font(.system(size: 10)).foregroundStyle(style.foreground.opacity(0.60)).lineLimit(1)
             VStack(alignment: .leading, spacing: 9) {
-            if !model.visibleCaption.source.isEmpty {
-                Text(model.visibleCaption.source)
+            if !caption.source.isEmpty {
+                Text(caption.source)
                     .font(.system(size: style.sourceFontSize, weight: .medium)).foregroundStyle(style.foreground)
                     .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
                     .shadow(color: style.textShadow, radius: 1)
             }
-            if !model.visibleCaption.translation.isEmpty {
-                Text(model.visibleCaption.translation).font(.system(size: style.translationFontSize)).foregroundStyle(style.translationForeground)
+            VStack(alignment: .leading, spacing: 4) {
+            if let english = presentation.english, !english.previous.isEmpty {
+                Text(english.previous).font(.system(size: english.previousFontSize))
+                    .foregroundStyle(style.translationForeground.opacity(0.70))
+                    .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+                    .shadow(color: style.textShadow, radius: 1)
+                    .accessibilityLabel("Previous sentence: " + english.previous)
+            }
+            if !caption.translation.isEmpty {
+                Text(caption.translation).font(.system(size: presentation.english?.fontSize ?? style.translationFontSize)).foregroundStyle(style.translationForeground)
                     .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
                     .shadow(color: style.textShadow, radius: 1)
             }
-            if !model.visibleCaption.placeholder.isEmpty {
-                Text(model.visibleCaption.placeholder).font(.system(size: min(style.sourceFontSize, style.translationFontSize))).foregroundStyle(style.foreground.opacity(0.65)).fixedSize(horizontal: false, vertical: true)
+            }
+            if !caption.placeholder.isEmpty {
+                Text(caption.placeholder).font(.system(size: min(style.sourceFontSize, style.translationFontSize))).foregroundStyle(style.foreground.opacity(0.65)).fixedSize(horizontal: false, vertical: true)
             }
             }.frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)

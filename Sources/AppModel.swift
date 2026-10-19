@@ -27,6 +27,8 @@ final class AppModel: ObservableObject {
     @Published var overlayVisible = false
     @Published var positionLocked = false
     @Published var appearance = CaptionAppearance.load() { didSet { appearance.save() } }
+    @Published private(set) var englishReading = EnglishCaptionReading()
+    @Published private(set) var readableEnglish = UserDefaults.standard.object(forKey: "readableEnglish.v1") as? Bool ?? true
     @Published var displayMode = CaptionDisplayMode(rawValue: UserDefaults.standard.string(forKey: "captionDisplayMode") ?? "") ?? .bilingual {
         didSet { UserDefaults.standard.set(displayMode.rawValue, forKey: "captionDisplayMode"); updateAppearance() }
     }
@@ -44,6 +46,8 @@ final class AppModel: ObservableObject {
     let glossary: GlossaryStore
     private var demoTask: Task<Void, Never>?
     private var micStartTask: Task<Void, Never>?
+    private var readingTask: Task<Void, Never>?
+    private var currentIsFinal = false
     private var translationContinuation: AsyncStream<Void>.Continuation?
     private var translationEpoch = 0
     private var contentGeneration = 0
@@ -58,14 +62,27 @@ final class AppModel: ObservableObject {
     var requiresTranslation: Bool { translationEnabled && sourceLanguage != targetLanguage }
     var convertsChineseScript: Bool { sourceLanguage != targetLanguage && sourceLanguage.isChinese && targetLanguage.isChinese }
     var languagePairLabel: String { "\(sourceLanguage.name) → \(targetLanguage.name)" }
-    var visibleCaption: VisibleCaption {
+    var visibleCaption: VisibleCaption { captionPresentation.caption }
+    var captionPresentation: CaptionPresentation {
         let size = captionLayoutSize
         let latest = CaptionViewport.latest(source: sourceText, translation: translatedText,
             showsSource: !requiresTranslation || displayMode == .bilingual, showsTranslation: requiresTranslation,
             style: appearance, width: size.width, height: size.height)
         let waiting = liveTranslationFailed ? "翻訳を再準備してください" : nil
-        return VisibleCaption(source: latest.source, translation: latest.translation, translates: requiresTranslation,
-            mode: displayMode, ready: translationReady, waiting: waiting ?? (requiresTranslation && !sourceText.isEmpty && latest.translation.isEmpty ? (translationReady ? "翻訳しています…" : "翻訳を準備してください") : nil))
+        var english: EnglishCaptionLayout?
+        if readableEnglish && requiresTranslation && targetLanguage == .english {
+            let (_, lines) = CaptionViewport.lineBudget(showsSource: displayMode == .bilingual, showsTranslation: true, style: appearance, height: size.height)
+            english = EnglishCaptionLayout.layout(text: englishReading.text.isEmpty ? translatedText : englishReading.text,
+                previous: englishReading.previous, fontSize: appearance.translationFontSize, width: size.width - 60,
+                height: Double(lines) * CaptionTypesetting.lineHeight(appearance.translationFontSize))
+        }
+        let translation = english?.text ?? latest.translation
+        // A retained previous sentence has its own dimmed block. Its header says
+        // that the next translation is pending; do not overlap it with a placeholder.
+        let placeholder = english?.previous.isEmpty == false ? "" : waiting ?? (requiresTranslation && !sourceText.isEmpty && translation.isEmpty ? (translationReady ? "翻訳しています…" : "翻訳を準備してください") : nil)
+        let caption = VisibleCaption(source: latest.source, translation: translation, translates: requiresTranslation,
+            mode: displayMode, ready: translationReady, waiting: placeholder)
+        return CaptionPresentation(caption: caption, english: english)
     }
     var liveLabel: String {
         if isDemoPlaying { return "ライブ表示のデモ" }
@@ -116,6 +133,8 @@ final class AppModel: ObservableObject {
         languageChanged()
     }
     private func glossaryChanged() {
+        readingTask?.cancel(); readingTask = nil; englishReading = EnglishCaptionReading()
+        if let currentID { englishReading.begin(currentID, now: ProcessInfo.processInfo.systemUptime) }
         speech.contextualPhrases = glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
         slides.setGlossary(glossary.selected)
         // Keep capture, original text and the prepared translation session alive.
@@ -135,7 +154,23 @@ final class AppModel: ObservableObject {
         if appearance != bounded { appearance = bounded }
         overlay?.refreshSize()
     }
+    func setReadableEnglish(_ enabled: Bool) {
+        readableEnglish = enabled; UserDefaults.standard.set(enabled, forKey: "readableEnglish.v1")
+        englishReading.flush(now: ProcessInfo.processInfo.systemUptime)
+        scheduleReadingUpdate()
+    }
+    private func scheduleReadingUpdate() {
+        readingTask?.cancel(); readingTask = nil
+        guard let deadline = englishReading.nextWakeup else { return }
+        readingTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(max(0.01, deadline - ProcessInfo.processInfo.systemUptime)))
+            guard !Task.isCancelled, let self else { return }
+            self.englishReading.tick(now: ProcessInfo.processInfo.systemUptime)
+            self.scheduleReadingUpdate()
+        }
+    }
     private func resetLiveCaption() {
+        readingTask?.cancel(); readingTask = nil; englishReading = EnglishCaptionReading(); currentIsFinal = false
         contentGeneration += 1; mailbox.removeAll(); revisions.removeAll(); translatedRevisions.removeAll(); submitted.removeAll()
         currentID = nil; sourceText = ""; translatedText = ""; translationUpdating = false; liveTranslationFailed = false
     }
@@ -146,14 +181,16 @@ final class AppModel: ObservableObject {
 
     // Every partial result reaches the original caption synchronously. No silence
     // timer, translation completion, or reading-duration timer gates this path.
-    private func receive(_ text: String, id: UUID, kind: String) {
+    private func receive(_ text: String, id: UUID, kind: String, final: Bool = false) {
         let clean = sourceLanguage.normalizeScript(captionText(text))
         guard !clean.isEmpty else { return }
         let index = logs.firstIndex { $0.id == id }
         let changed = index.map { logs[$0].source != clean } ?? true
         if currentID != id {
+            englishReading.begin(id, now: ProcessInfo.processInfo.systemUptime); scheduleReadingUpdate()
             currentID = id; translatedText = ""; liveTranslationFailed = false
         }
+        currentIsFinal = final
         sourceText = clean; captionKind = kind; mailbox.preferredID = id
         if let index {
             logs[index].source = clean
@@ -164,11 +201,14 @@ final class AppModel: ObservableObject {
         if changed { revisions[id, default: 0] += 1; liveTranslationFailed = false }
         translationUpdating = requiresTranslation && translatedRevisions[id] != revisions[id]
         if requiresTranslation { submitTranslation(id: id, text: clean) }
+        if final && translatedRevisions[id] == revisions[id] {
+            englishReading.flush(now: ProcessInfo.processInfo.systemUptime); scheduleReadingUpdate()
+        }
     }
     private func handleSpeech(_ snapshot: SpeechSnapshot, final: Bool) {
         guard isListening || isStartingMic else { return }
         isStartingMic = false
-        receive(snapshot.text, id: snapshot.segmentID, kind: "マイク字幕")
+        receive(snapshot.text, id: snapshot.segmentID, kind: "マイク字幕", final: final)
         // Partial and final results update the same transcript entry. Finalization
         // needs no display delay; the last pending translation already has full text.
     }
@@ -326,6 +366,10 @@ final class AppModel: ObservableObject {
         }
         guard currentID == job.cueID else { return } // A previous utterance may only update its log.
         translatedText = text; translationUpdating = requiresTranslation && incomplete; liveTranslationFailed = false
+        if targetLanguage == .english {
+            englishReading.receive(text, now: ProcessInfo.processInfo.systemUptime, final: !readableEnglish || (currentIsFinal && !incomplete))
+            scheduleReadingUpdate()
+        }
     }
 
     func toggleMic() {
@@ -354,10 +398,10 @@ final class AppModel: ObservableObject {
         let text = captionText(typedText)
         guard !text.isEmpty else { return }
         stopMic(); stopDemo()
-        receive(text, id: UUID(), kind: "文字入力")
+        receive(text, id: UUID(), kind: "文字入力", final: true)
         if requiresTranslation && !translationReady { prepareTranslation() }
         typedText = ""; ensureOverlay()
-        status = "入力した原文をすぐ表示しました。長文は末尾の行を表示し、全文をログに保持します。"
+        status = "入力した原文をすぐ表示しました。全文は字幕ログに保持します。"
     }
     func toggleDemo() {
         if isDemoPlaying { stopDemo(); return }
@@ -399,5 +443,5 @@ final class AppModel: ObservableObject {
         }.joined(separator: "\n\n")
         do { try text.write(to: url, atomically: true, encoding: .utf8); status = "字幕ログを保存しました。" } catch { status = "保存できませんでした：\(error.localizedDescription)" }
     }
-    func shutdown() { slides.shutdown(); stopMic(); stopDemo(); translationContinuation?.finish(); overlay?.savePosition() }
+    func shutdown() { slides.shutdown(); stopMic(); stopDemo(); readingTask?.cancel(); readingTask = nil; translationContinuation?.finish(); overlay?.savePosition() }
 }

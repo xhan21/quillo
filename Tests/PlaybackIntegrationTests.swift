@@ -27,7 +27,9 @@ import AppKit
         let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
         model.clearCaption(); model.isListening = true
         let originalMode = model.displayMode
-        defer { model.displayMode = originalMode }
+        let originalReading = model.readableEnglish
+        model.setReadableEnglish(false)
+        defer { model.displayMode = originalMode; model.setReadableEnglish(originalReading) }
         let id = UUID()
         func speech(_ text: String, final: Bool = false, segment: UUID = id) {
             model.speech.onText?(SpeechSnapshot(segmentID: segment, text: text), final)
@@ -107,13 +109,16 @@ import AppKit
         precondition(long.hasSuffix(model.visibleCaption.source) && model.visibleCaption.source.hasSuffix("最後です。"))
         model.shutdown()
         try await modeSwitching()
+        try await englishReadingMode()
         print("PASS: synchronous original update (\(updateTime)), partial translation progress, coalescing, no duplicated finals, no stale overwrite, live priority + final logs, errors recover, clear cancels, full logs, one translation in flight")
     }
 
     @MainActor static func modeSwitching() async throws {
         let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
         let originalMode = model.displayMode
-        defer { model.displayMode = originalMode; model.shutdown() }
+        let originalReading = model.readableEnglish
+        model.setReadableEnglish(false)
+        defer { model.displayMode = originalMode; model.setReadableEnglish(originalReading); model.shutdown() }
         model.clearCaption(); model.setCaptionMode(nil)
         model.isListening = true
         let id = UUID()
@@ -180,5 +185,46 @@ import AppKit
         await worker.value
         precondition(model.translatedText != "Old language must not return" && translator.maximumActive == 1)
         print("PASS: UI mode transitions preserve microphone and session, auto-prepare from original-only, resume latest text during preparation/in-flight/idle/stopped capture, bilingual + translation-only visibility, actual language changes invalidate old results")
+    }
+
+    @MainActor static func englishReadingMode() async throws {
+        let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
+        let savedMode = model.displayMode, savedReading = model.readableEnglish
+        defer { model.displayMode = savedMode; model.setReadableEnglish(savedReading); model.shutdown() }
+        model.clearCaption(); model.setReadableEnglish(true); model.setCaptionMode(.translationOnly); model.isListening = true
+        let id = UUID(), translator = ControlledTranslator()
+        func speech(_ text: String, final: Bool = false, cue: UUID = id) {
+            model.speech.onText?(SpeechSnapshot(segmentID: cue, text: text), final)
+        }
+        let worker = Task { await model.runTranslationWorker(prepare: {}, translate: { try await translator.translate($0) }) }
+        speech("条件が")
+        try await eventually { translator.calls.count == 1 }
+        translator.complete("If the condition")
+        try await eventually { model.englishReading.text == "If the condition" }
+        let session = model.translationSessionID
+        speech("条件が真なら結果は偽ではありません。")
+        try await eventually { translator.calls.count == 1 }
+        translator.complete("If the condition is true, the result is not false.")
+        try await eventually { model.translatedText.hasSuffix("not false.") }
+        precondition(model.logs[0].translation == model.translatedText, "Full logs are updated before any presentation delay")
+        try await eventually { model.englishReading.text == model.translatedText }
+        speech("次の例", cue: UUID())
+        precondition(model.translatedText.isEmpty && model.englishReading.previous.hasSuffix("not false."), "The old sentence is a separate context block, never the new translation")
+        try await eventually { translator.calls.count == 1 }
+        translator.complete("Next, compare the examples.")
+        try await eventually { model.visibleCaption.translation == "Next, compare the examples." }
+        model.setReadableEnglish(false)
+        precondition(model.captionPresentation.english == nil && model.visibleCaption.translation == model.translatedText)
+        model.setReadableEnglish(true); model.setCaptionMode(.bilingual); model.setCaptionMode(nil)
+        precondition(model.visibleCaption.translation.isEmpty && model.captionPresentation.english == nil)
+        model.setCaptionMode(.translationOnly)
+        precondition(model.isListening && model.translationSessionID == session && model.translationReady, "Reading/display switches do not restart capture or translation")
+        speech("取り消す内容", cue: UUID())
+        try await eventually { translator.calls.count == 1 }
+        model.clearCaption(); translator.complete("Must not return.")
+        try await eventually { translator.active == 0 }
+        precondition(model.englishReading.text.isEmpty && model.englishReading.previous.isEmpty)
+        worker.cancel(); await worker.value
+        print("PASS: reading mode uses production partial translations, retains separate context, keeps logs complete, preserves capture/session on toggles, clears stale updates")
     }
 }

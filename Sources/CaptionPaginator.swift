@@ -5,6 +5,12 @@ import AppKit
 enum CaptionViewport {
     static func latest(source: String, translation: String, showsSource: Bool, showsTranslation: Bool,
                        style: CaptionAppearance, width: Double, height: Double) -> (source: String, translation: String) {
+        let (sl, tl) = lineBudget(showsSource: showsSource, showsTranslation: showsTranslation, style: style, height: height)
+        return (tail(source, size: style.sourceFontSize, width: width - 60, lines: sl, weight: .medium),
+                tail(translation, size: style.translationFontSize, width: width - 60, lines: tl, weight: .regular))
+    }
+
+    static func lineBudget(showsSource: Bool, showsTranslation: Bool, style: CaptionAppearance, height: Double) -> (Int, Int) {
         let sh = CaptionTypesetting.lineHeight(style.sourceFontSize, weight: .medium)
         let th = CaptionTypesetting.lineHeight(style.translationFontSize)
         var sl = showsSource ? 1 : 0, tl = showsTranslation ? 1 : 0
@@ -16,8 +22,7 @@ enum CaptionViewport {
             if canSource && (!canTarget || sl <= tl) { sl += 1; remaining -= sh }
             else { tl += 1; remaining -= th }
         }
-        return (tail(source, size: style.sourceFontSize, width: width - 60, lines: sl, weight: .medium),
-                tail(translation, size: style.translationFontSize, width: width - 60, lines: tl, weight: .regular))
+        return (sl, tl)
     }
 
     static func tail(_ text: String, size: Double, width: Double, lines: Int, weight: NSFont.Weight) -> String {
