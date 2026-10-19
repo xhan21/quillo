@@ -29,15 +29,22 @@ final class SpeechCapture {
         }
         generation += 1
         let startGeneration = generation
-        let speechPermission = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+        var speechPermission = SFSpeechRecognizer.authorizationStatus()
+        if speechPermission == .notDetermined {
+            speechPermission = await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+            }
         }
         guard startGeneration == generation else { return }
         guard speechPermission == .authorized else {
             onStatus?("音声認識の許可が必要です。システム設定の「プライバシーとセキュリティ」から許可してください。")
             onStopped?(); return
         }
-        let micPermission = await AVCaptureDevice.requestAccess(for: .audio)
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        var micPermission = micStatus == .authorized
+        if micStatus == .notDetermined {
+            micPermission = await AVCaptureDevice.requestAccess(for: .audio)
+        }
         guard startGeneration == generation else { return }
         guard micPermission else {
             onStatus?("マイクが許可されていません。システム設定の「プライバシーとセキュリティ」→「マイク」を確認してください。")

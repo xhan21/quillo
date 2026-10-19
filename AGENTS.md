@@ -17,6 +17,8 @@ Quillo (クイロ) is a native macOS teaching accessibility prototype, previousl
 
 - Sources/ is native Swift/AppKit/SwiftUI. build.sh is the canonical build. test.sh runs the meaningful regression checks; Vision and live model checks need a suitable Mac.
 - Keep CFBundleIdentifier and signing identifier jp.xuhan.KotobaLocal, preference keys, and internal executable name stable. These are intentional compatibility identifiers despite the new display name.
+- Readable English captions are the accepted default, not a trial. Preserve the optional legacy display switch.
+- Preserve the owner's local signing identity at `~/Library/Application Support/Quillo/Signing/identity.sha1` and its non-exportable login-keychain key. `build.sh` uses it automatically. Never replace it or silently switch an installed signed copy back to ad-hoc signing; that can invalidate privacy consent. Do not change TCC databases or certificate trust settings. The local identity is not for public binary distribution.
 - Preserve third-party notices and the distinction between commentable as design inspiration and the adapted reading-order algorithm from class-material-translator.
 - Verify the build and signature before installation. Quit the running app through the approved app-control tools before replacing it. Do not automatically start microphone capture or select a new screen-sharing target.
 - Install the personal Mac copy at /Applications/Quillo.app when an update/install is requested. Explain when a restart requires capture to be selected again.

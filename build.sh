@@ -10,6 +10,20 @@ xcrun swiftc -swift-version 5 -parse-as-library -O -target arm64-apple-macos15.0
 cp Resources/ClassMaterialTranslator-LICENSE.txt "$APP_PATH/Contents/Resources/"
 cp Resources/Info.plist "$APP_PATH/Contents/Info.plist"
 if [[ -f Resources/AppIcon.icns ]]; then cp Resources/AppIcon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"; fi
-codesign --force --sign - --identifier jp.xuhan.KotobaLocal --entitlements Resources/Entitlements.plist "$APP_PATH"
+# Keep the signing identity across local updates so macOS can retain consent.
+# An explicit identity takes precedence; never silently fall back if configured.
+SIGNING_FILE="$HOME/Library/Application Support/Quillo/Signing/identity.sha1"
+SIGNING_IDENTITY="${QUILLO_SIGNING_IDENTITY:-}"
+if [[ -z "$SIGNING_IDENTITY" && -f "$SIGNING_FILE" ]]; then
+    SIGNING_IDENTITY="$(cat "$SIGNING_FILE")"
+    if [[ ! "$SIGNING_IDENTITY" =~ '^[A-Fa-f0-9]{40}$' ]]; then
+        print -u2 "Invalid Quillo signing identity. Check $SIGNING_FILE"; exit 1
+    fi
+fi
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+    SIGNING_IDENTITY="-"
+    print -u2 "Ad-hoc signing: permissions may be requested again after updates. See docs/SETUP.md."
+fi
+codesign --force --sign "$SIGNING_IDENTITY" --identifier jp.xuhan.KotobaLocal --entitlements Resources/Entitlements.plist "$APP_PATH"
 codesign --verify --deep --strict "$APP_PATH"
 print "$APP_PATH"

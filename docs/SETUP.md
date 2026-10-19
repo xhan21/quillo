@@ -51,3 +51,13 @@ zsh build.sh
 - モデルが見つからない場合は、Ollamaの状態とモデル名を確認します。
 
 準備ができたら、[使い方](USER_GUIDE.md)へ進んでください。要約モデルの選定・確認環境は[モデル評価](../MODEL-EVALUATION.md)に記載しています。
+
+## 開発版で許可を引き継ぐ
+
+- 自分のMacで継続してビルドする場合は、最初に `python3 Tools/setup-local-signing.py` を実行します。その後は通常どおり `zsh build.sh` で更新します。
+- このMac専用の署名を一度作り、秘密鍵をログインキーチェーンへ保存します。秘密鍵は書き出せない設定で、証明書の信頼設定は変更しません。再実行時は既存の署名を使います。
+- `build.sh` は保存された署名を利用します。署名キーが使えない場合はエラーにし、別の署名へ自動変更しません。署名を用意しない場合は従来のアドホック署名になり、更新後に許可が必要になることがあります。
+- 今までの署名から切り替える初回は、マイク・音声認識を再び許可する場合があります。許可はmacOSが管理し、Quilloが勝手に許可したり解除したりすることはありません。
+- ローカル署名は自分のMacでの開発用です。他の人へアプリ本体を配布するにはDeveloper ID署名と公証を別途準備します。対応する証明書がある場合は `QUILLO_SIGNING_IDENTITY` で明示できます。
+
+根拠：[Appleのコード署名の説明](https://developer.apple.com/library/archive/technotes/tn2206/) ／ [マイク等の許可の保持](https://developer.apple.com/documentation/avfoundation/requesting-authorization-to-capture-and-save-media)。
