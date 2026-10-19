@@ -43,8 +43,8 @@ struct SlideTranslationCard: View {
     private var regionGuidance: String {
         if !model.isRunning { return "Macの画面選択で、資料のウィンドウを選んで共有してください。" }
         if !model.canEditRegions { return "選んだ画面を読み込み中です。資料を開いたままお待ちください。" }
-        if model.isEditingRegions { return "プレビューで資料の部分をドラッグしてください。" }
-        return "「範囲を変更」で資料の部分を囲んでください。"
+        if model.isEditingRegions { return "枠の中をドラッグで移動、角や辺でサイズを調整できます。" }
+        return "「範囲を変更」で、枠の移動・サイズ調整・追加ができます。"
     }
 }
 

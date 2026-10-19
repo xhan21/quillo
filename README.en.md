@@ -18,7 +18,7 @@ I made Quillo to handle captions separately from the presentation app and provid
 ## What it does
 
 - **Live captions and translation** — Speak Japanese or English; the original text and translation update as you speak.
-- **Slide summaries** — Select an area to read and show translated key points in a separate panel.
+- **Slide summaries** — Select an area to read and show translated key points in a separate panel. Move or resize the selection later without drawing it again.
 - **Flexible placement** — Drag the panels anywhere and adjust their size, fonts, and backgrounds.
 - **Display choices** — Show the original, the translation, or both. Supports Japanese, English, Simplified Chinese, and Traditional Chinese.
 - **Class glossaries** — Add terminology for each set of teaching materials to help recognition and keep translations consistent.

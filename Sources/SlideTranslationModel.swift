@@ -136,14 +136,14 @@ final class SlideTranslationModel: ObservableObject {
         guard let incoming = lastFrame, isRunning, !isEditingRegions else { return }
         captureGeneration += 1; analysisTask?.cancel(); analysisTask = nil; pendingFrame = nil
         clearPage(); lastSignature = ""; isEditingRegions = true; openEditorOnFrame = false
-        status = "資料の部分をドラッグして囲んでください。選んだ範囲の文字だけを要約します。"
+        status = "枠の中をドラッグで移動、角や辺でサイズを調整できます。選んだ範囲の文字だけを要約します。"
         let editor = SlideRegionSelectionController(image: incoming.image, regions: regions)
         regionEditor = editor
         editor.completion = { [weak self] selected in
             guard let self else { return }
             self.isEditingRegions = false; self.regionEditor = nil
             if let selected { self.regions = selected }
-            if self.regions.isEmpty { self.status = "「範囲を指定」で資料の部分を囲むと、要約を開始します。" }
+            if self.regions.isEmpty { self.status = "「範囲を変更」で資料の部分を囲むと、要約を開始します。" }
             else { self.refresh(); self.showTranslationPanel() }
         }
         hideTranslationPanel(); editor.show()

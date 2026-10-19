@@ -15,6 +15,8 @@ $SWIFT Sources/CaptionSupport.swift Sources/MaterialGlossary.swift Sources/Slide
 build/slide-summary-tests
 $SWIFT Sources/CaptionSupport.swift Sources/SlideLayout.swift Sources/SlideReadingOrder.swift Sources/SlideAnalyzer.swift Sources/SlideAnnotationRenderer.swift Sources/SlideDemo.swift Tests/SlideTests.swift -o build/slide-tests -framework AppKit -framework Vision
 build/slide-tests
+$SWIFT Sources/CaptionSupport.swift Sources/SlideLayout.swift Sources/SlideReadingOrder.swift Sources/SlideRegionEditing.swift Sources/SlideRegionSelection.swift Tests/SlideRegionEditingTests.swift -o build/slide-region-tests -framework AppKit
+build/slide-region-tests
 APP_SOURCES=(Sources/*.swift)
 APP_SOURCES=(${APP_SOURCES:#Sources/Main.swift})
 $SWIFT $APP_SOURCES Tests/PlaybackIntegrationTests.swift -o build/playback-integration-tests -framework AppKit -framework SwiftUI -framework Speech -framework AVFoundation -framework Translation -framework ScreenCaptureKit -framework Vision -framework CoreImage
