@@ -7,6 +7,7 @@
 - [内部の仕組み](ARCHITECTURE.md) ／ [用語辞書の形式](GLOSSARIES.md)：開発・拡張向け。
 - [確認記録](VALIDATION.md) ／ [変更履歴](../CHANGELOG.md)：実際に確認した範囲。
 - 公開画像は`docs/images/`。利用者から掲載を依頼されたサンプル画面のみを使い、個人の教材・字幕ログは含めない。
+- 開発者とChatGPT（愛称Hedwig）の役割は[シリーズ紹介](https://github.com/xhan21/hedwig-tools)に集約。各言語のREADMEにはシリーズへのリンクだけを置き、助手についての説明を重複させない。
 
 ## 別のチャットで続ける
 

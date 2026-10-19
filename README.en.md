@@ -75,9 +75,7 @@ These detailed guides are currently in Japanese:
 - [Verified behavior and remaining limitations](docs/VALIDATION.md)
 - [Development and maintenance](docs/MAINTENANCE.md) / [Changelog](CHANGELOG.md)
 
-## Development
-
-The code is generated and revised by ChatGPT, used as an assistant under Han's direction.
+[Tools made with Hedwig — About the series](https://github.com/xhan21/hedwig-tools/blob/main/README.en.md)
 
 ## Acknowledgments and license
 
