@@ -28,7 +28,6 @@ final class AppModel: ObservableObject {
     @Published var positionLocked = false
     @Published var appearance = CaptionAppearance.load() { didSet { appearance.save() } }
     @Published private(set) var sentenceReading = SentenceCaptionReading()
-    @Published private(set) var readableTranslation = UserDefaults.standard.object(forKey: "readableEnglish.v1") as? Bool ?? true
     @Published var displayMode = CaptionDisplayMode(rawValue: UserDefaults.standard.string(forKey: "captionDisplayMode") ?? "") ?? .bilingual {
         didSet { UserDefaults.standard.set(displayMode.rawValue, forKey: "captionDisplayMode"); updateAppearance() }
     }
@@ -70,7 +69,7 @@ final class AppModel: ObservableObject {
             style: appearance, width: size.width, height: size.height)
         let waiting = liveTranslationFailed ? "翻訳を再準備してください" : nil
         var reading: SentenceCaptionLayout?
-        if readableTranslation && requiresTranslation && SentenceCaptionLayout.supports(targetLanguage) {
+        if requiresTranslation && SentenceCaptionLayout.supports(targetLanguage) {
             let (_, lines) = CaptionViewport.lineBudget(showsSource: displayMode == .bilingual, showsTranslation: true, style: appearance, height: size.height)
             reading = SentenceCaptionLayout.layout(text: sentenceReading.text.isEmpty ? translatedText : sentenceReading.text,
                 previous: sentenceReading.previous, fontSize: appearance.translationFontSize, width: size.width - 60,
@@ -153,11 +152,6 @@ final class AppModel: ObservableObject {
         var bounded = appearance.normalized(); bounded.height = max(bounded.height, minimumPanelHeight)
         if appearance != bounded { appearance = bounded }
         overlay?.refreshSize()
-    }
-    func setReadableTranslation(_ enabled: Bool) {
-        readableTranslation = enabled; UserDefaults.standard.set(enabled, forKey: "readableEnglish.v1")
-        sentenceReading.flush(now: ProcessInfo.processInfo.systemUptime)
-        scheduleReadingUpdate()
     }
     private func scheduleReadingUpdate() {
         readingTask?.cancel(); readingTask = nil
@@ -367,7 +361,7 @@ final class AppModel: ObservableObject {
         guard currentID == job.cueID else { return } // A previous utterance may only update its log.
         translatedText = text; translationUpdating = requiresTranslation && incomplete; liveTranslationFailed = false
         if SentenceCaptionLayout.supports(targetLanguage) {
-            sentenceReading.receive(text, now: ProcessInfo.processInfo.systemUptime, final: !readableTranslation || (currentIsFinal && !incomplete))
+            sentenceReading.receive(text, now: ProcessInfo.processInfo.systemUptime, final: currentIsFinal && !incomplete)
             scheduleReadingUpdate()
         }
     }

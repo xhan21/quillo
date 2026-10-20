@@ -16,9 +16,9 @@ import Translation
         model.clearCaption(); model.appearance = CaptionAppearance()
         model.appearance.automaticHeight = false; model.appearance.height = 260
         model.appearance.translationFontSize = 38
-        model.setReadableTranslation(true); model.setCaptionMode(.translationOnly)
+        model.setCaptionMode(.translationOnly)
         window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 960, height: 620), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Quillo — 英語・中国語字幕の比較（マイク不使用）"
+        window.title = "Quillo — 英語・中国語字幕の確認（マイク不使用）"
         window.contentView = NSHostingView(rootView: ReadingPreviewView(model: model))
         window.center(); window.makeKeyAndOrderFront(nil)
         Task { await verify() }
@@ -30,7 +30,7 @@ import Translation
         let pairs: [(CaptionLanguage, CaptionLanguage)] = [(.japanese, .english), (.japanese, .chinese), (.english, .chinese), (.english, .traditionalChinese), (.japanese, .traditionalChinese)]
         for (source, target) in pairs {
             model.targetLanguage = target; model.setSpeechLanguage(source); model.languageChanged()
-            model.setCaptionMode(.translationOnly); model.setReadableTranslation(true)
+            model.setCaptionMode(.translationOnly)
             let id = UUID()
             let inputs = source == .japanese
                 ? ["条件が真なら", "条件が真なら、結果は", "条件が真なら、結果は偽ではありません。"]
@@ -50,10 +50,9 @@ import Translation
             model.sendTypedCaption()
             await waitForTranslation()
             let full = model.translatedText, reading = model.captionPresentation.reading
-            model.setReadableTranslation(false); let old = model.visibleCaption.translation; model.setReadableTranslation(true)
             let (_, lines) = CaptionViewport.lineBudget(showsSource: false, showsTranslation: true, style: model.appearance, height: model.captionLayoutSize.height)
             let budget = Double(lines) * CaptionTypesetting.lineHeight(model.appearance.translationFontSize)
-            rows.append(["pair": model.languagePairLabel, "translation": full, "display": reading?.text ?? "", "legacyDisplay": old, "fontSize": "\(reading?.fontSize ?? 0)",
+            rows.append(["pair": model.languagePairLabel, "translation": full, "display": reading?.text ?? "", "fontSize": "\(reading?.fontSize ?? 0)",
                          "result": !full.isEmpty && !model.translationUpdating && full == reading?.text && (reading?.height ?? .infinity) <= budget ? "PASS" : "FAIL"])
         }
         let data = try! JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
@@ -71,8 +70,7 @@ private struct ReadingPreviewView: View {
     @ObservedObject var model: AppModel
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("実際のApple翻訳で比較 · マイクは使用しません").font(.headline)
-            Toggle("読みやすさ優先（オフで従来の表示）", isOn: Binding(get: { model.readableTranslation }, set: { model.setReadableTranslation($0) }))
+            Text("実際のApple翻訳で表示を確認 · マイクは使用しません").font(.headline)
             OverlayCaptionView(model: model).frame(width: 900, height: 260)
             Text("入力：" + model.sourceText).font(.system(size: 13))
             Text("翻訳全文：" + model.translatedText).font(.system(size: 13))

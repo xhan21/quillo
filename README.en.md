@@ -21,7 +21,7 @@ I made Quillo to handle captions separately from the presentation app and provid
 - **Slide summaries** — Select an area to read and show translated key points in a separate panel. Move or resize the selection later without drawing it again.
 - **Flexible placement** — Drag the panels anywhere and adjust their size, fonts, and backgrounds.
 - **Display choices** — Show the original, the translation, or both. Supports Japanese, English, Simplified Chinese, and Traditional Chinese.
-- **Readable English and Chinese captions** — Prioritize a complete sentence, adjust its font size, and reduce frequent partial rewrites. Switch back to the previous display in settings.
+- **Readable English and Chinese captions** — Prioritize a complete sentence, adjust its font size, and reduce frequent partial rewrites. This is the standard display.
 - **Class glossaries** — Add terminology for each set of teaching materials to help recognition and keep translations consistent.
 
 Microphone input supports **Japanese and English**. Caption translation targets, material languages, and typed input support **Japanese, English, Simplified Chinese, and Traditional Chinese**. Choose the spoken and material languages separately.

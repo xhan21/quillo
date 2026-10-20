@@ -118,9 +118,7 @@ struct ControlView: View {
             }.font(.system(size: 11)).buttonStyle(.bordered)
             Text(model.positionLocked ? "固定中は、字幕の下にあるスライドを操作できます。" : "字幕の背景をドラッグして移動、右下のつまみでサイズを変更できます。")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
-            Toggle("英語・中国語字幕を読みやすく表示", isOn: Binding(get: { model.readableTranslation }, set: { model.setReadableTranslation($0) }))
-                .toggleStyle(.switch).font(.system(size: 12))
-            Text("英語・中国語（簡体字／繁体字）の訳を一文ごとに表示し、文字サイズを自動調整。余裕があれば直前の一文を薄く残します。途中訳の書き換えは約0.65秒ごと。オフで従来の表示に戻ります。")
+            Text("英語・中国語（簡体字／繁体字）の字幕は、一文を優先して文字サイズを自動調整します。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 24) {
                 ValueAdjustment(title: "原文の文字サイズ", value: $model.appearance.sourceFontSize, range: 14...90, unit: "pt")

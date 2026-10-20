@@ -27,9 +27,7 @@ import AppKit
         let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
         model.clearCaption(); model.isListening = true
         let originalMode = model.displayMode
-        let originalReading = model.readableTranslation
-        model.setReadableTranslation(false)
-        defer { model.displayMode = originalMode; model.setReadableTranslation(originalReading) }
+        defer { model.displayMode = originalMode }
         let id = UUID()
         func speech(_ text: String, final: Bool = false, segment: UUID = id) {
             model.speech.onText?(SpeechSnapshot(segmentID: segment, text: text), final)
@@ -116,9 +114,7 @@ import AppKit
     @MainActor static func modeSwitching() async throws {
         let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
         let originalMode = model.displayMode
-        let originalReading = model.readableTranslation
-        model.setReadableTranslation(false)
-        defer { model.displayMode = originalMode; model.setReadableTranslation(originalReading); model.shutdown() }
+        defer { model.displayMode = originalMode; model.shutdown() }
         model.clearCaption(); model.setCaptionMode(nil)
         model.isListening = true
         let id = UUID()
@@ -157,7 +153,7 @@ import AppKit
         precondition(translator.calls[0].text == "原文だけでも聞き続ける")
         model.setCaptionMode(.bilingual); model.setCaptionMode(nil); model.setCaptionMode(.translationOnly)
         translator.complete("Keep listening")
-        try await eventually { model.translatedText == "Keep listening" && !model.translationUpdating }
+        try await eventually { model.visibleCaption.translation == "Keep listening" && !model.translationUpdating }
         precondition(model.visibleCaption.source.isEmpty && model.visibleCaption.translation == "Keep listening")
         model.setCaptionMode(.bilingual)
         precondition(model.visibleCaption.source == "原文だけでも聞き続ける" && model.visibleCaption.translation == "Keep listening")
@@ -188,11 +184,20 @@ import AppKit
     }
 
     @MainActor static func sentenceReadingMode(_ language: CaptionLanguage) async throws {
+        // A user who disabled the old optional mode must also get the new standard.
+        let defaults = UserDefaults.standard
+        let oldPreference = defaults.object(forKey: "readableEnglish.v1")
+        defaults.set(false, forKey: "readableEnglish.v1")
+        defer {
+            if let oldPreference { defaults.set(oldPreference, forKey: "readableEnglish.v1") }
+            else { defaults.removeObject(forKey: "readableEnglish.v1") }
+        }
         let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
-        let savedMode = model.displayMode, savedReading = model.readableTranslation
-        defer { model.displayMode = savedMode; model.setReadableTranslation(savedReading); model.shutdown() }
+        let savedMode = model.displayMode
+        defer { model.displayMode = savedMode; model.shutdown() }
         model.clearCaption(); model.targetLanguage = language; model.languageChanged()
-        model.setReadableTranslation(true); model.setCaptionMode(.translationOnly); model.isListening = true
+        model.setCaptionMode(.translationOnly); model.isListening = true
+        precondition(model.captionPresentation.reading != nil, "Sentence display is always active even when the old saved preference was off")
         let first = language == .english ? "If the condition" : language.normalizeScript("如果条件")
         let complete = language == .english ? "If the condition is true, the result is not false." : language.normalizeScript("如果条件为真，结果就不是假。")
         let next = language == .english ? "Next, compare the examples." : language.normalizeScript("接下来，比较三个例子。")
@@ -217,18 +222,18 @@ import AppKit
         try await eventually { translator.calls.count == 1 }
         translator.complete(next)
         try await eventually { model.visibleCaption.translation == next }
-        model.setReadableTranslation(false)
-        precondition(model.captionPresentation.reading == nil && model.visibleCaption.translation == model.translatedText)
-        model.setReadableTranslation(true); model.setCaptionMode(.bilingual); model.setCaptionMode(nil)
+        model.setCaptionMode(.bilingual)
+        precondition(model.captionPresentation.reading != nil && model.visibleCaption.translation == next)
+        model.setCaptionMode(nil)
         precondition(model.visibleCaption.translation.isEmpty && model.captionPresentation.reading == nil)
         model.setCaptionMode(.translationOnly)
-        precondition(model.isListening && model.translationSessionID == session && model.translationReady, "Reading/display switches do not restart capture or translation")
+        precondition(model.isListening && model.translationSessionID == session && model.translationReady && model.captionPresentation.reading != nil, "Display switches keep standard sentence reading without restarting capture or translation")
         speech("取り消す内容", cue: UUID())
         try await eventually { translator.calls.count == 1 }
         model.clearCaption(); translator.complete("Must not return.")
         try await eventually { translator.active == 0 }
         precondition(model.sentenceReading.text.isEmpty && model.sentenceReading.previous.isEmpty)
         worker.cancel(); await worker.value
-        print("PASS: \(language.rawValue) reading mode uses production partial translations, retains separate context, keeps logs complete, preserves capture/session on toggles, clears stale updates")
+        print("PASS: \(language.rawValue) standard sentence display ignores legacy off preference, retains separate context and full logs, preserves capture/session on display switches, clears stale updates")
     }
 }
