@@ -115,6 +115,48 @@ import AppKit
             let small = SentenceCaptionLayout.layout(text: String(repeating: texts[3], count: 1), history: [String(repeating: texts[0], count: 20), String(repeating: texts[1], count: 20)], fontSize: 38, width: 260, height: SentenceCaptionLayout.minimumHeight(fontSize: 38), language: language)
             precondition(small.history.count == 2 && small.height <= SentenceCaptionLayout.minimumHeight(fontSize: 38), "Small panels reserve both history rows without scrolling")
         }
+        // A new cue can begin before the preceding translation has arrived.
+        var delayed = SentenceCaptionReading()
+        let a = UUID(), b = UUID(), c = UUID(), d = UUID()
+        delayed.begin(a, now: 0)
+        delayed.begin(b, now: 1)
+        delayed.begin(c, now: 2)
+        delayed.receive("Current.", now: 2, final: true, cueID: c)
+        delayed.receive("Second.", now: 3, cueID: b)
+        delayed.receive("First.", now: 4, cueID: a)
+        precondition(delayed.history == ["First.", "Second."] && delayed.currentText == "Current.", "Late results use speech order, not arrival order")
+        delayed.receive("Second corrected.", now: 5, cueID: b)
+        precondition(delayed.history == ["First.", "Second corrected."], "A late final replaces its own slot")
+        delayed.begin(d, now: 6)
+        delayed.receive("Must not return.", now: 7, cueID: a)
+        precondition(delayed.history == ["Second corrected.", "Current."], "Evicted old cues cannot displace recent history")
+
+        for language in CaptionLanguage.allCases {
+            let parts = language == .english ? ["First sentence.", "Second sentence.", "Third sentence."]
+                : language == .japanese ? ["最初の文です。", "二つ目の文です。", "三つ目の文です。"]
+                : ["这是第一句。", "这是第二句。", "这是第三句。"].map(language.normalizeScript)
+            var cumulative = SentenceCaptionReading()
+            cumulative.begin(UUID(), language: language, now: 0)
+            cumulative.receive(parts[0], now: 0, final: true, sourcePosition: 0)
+            cumulative.receive(parts[0] + " " + parts[1], now: 1, final: true, sourcePosition: 1)
+            precondition(cumulative.history == [parts[0]] && cumulative.currentText == parts[1])
+            // A later translation collapses or rewrites the earlier sentences.
+            cumulative.receive(parts[2], now: 2, final: true, sourcePosition: 2)
+            precondition(cumulative.history == Array(parts.prefix(2)), "The displayed current sentence survives changed punctuation")
+            cumulative.receive(parts.joined(separator: " "), now: 3, final: true, sourcePosition: 2)
+            precondition(cumulative.history == Array(parts.prefix(2)), "Punctuation catching up does not add false history")
+            for limit in 0...2 {
+                let layout = SentenceCaptionLayout.layout(text: cumulative.currentText, history: cumulative.history, fontSize: 25, width: 700, height: 220, language: language, historyLimit: limit)
+                precondition(layout.text == parts[2] && layout.history == Array(parts.prefix(2).suffix(limit)))
+                let raw = SentenceCaptionLayout.layout(text: parts.joined(separator: " "), history: [], fontSize: 25, width: 700, height: 220, language: language, historyLimit: limit)
+                precondition(raw.history.count == limit, "History controls also apply to initial multi-sentence samples")
+            }
+        }
+        var pending = SentenceCaptionReading()
+        pending.begin(UUID(), now: 0); pending.receive("Actually displayed", now: 0)
+        pending.receive("Pending revision", now: 0.1)
+        pending.begin(UUID(), now: 0.2)
+        precondition(pending.history == ["Actually displayed"], "Archive what students saw, not an undisplayed hypothesis")
         print("PASS: four-language current plus two-sentence history, persistent context, revision replacement, repeated phrases, fitting bounds, punctuation, Unicode and bounded partial updates")
     }
 }

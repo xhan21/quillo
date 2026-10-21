@@ -5,36 +5,71 @@ import NaturalLanguage
 // There is one replaceable pending hypothesis, not a queue of old captions.
 struct SentenceCaptionReading {
     static let updateInterval = 0.65
-    private(set) var text = ""
-    private(set) var history: [String] = [] // Oldest first; at most two prior sentences.
+    private struct Cue {
+        let id: UUID
+        var text = ""
+        var current = ""
+        var completed: [String] = []
+        var position = 0
+        var sentences: [String] { completed + (current.isEmpty ? [] : [current]) }
+
+        mutating func update(_ value: String, sourcePosition: Int?, language: CaptionLanguage) {
+            let parts = SentenceCaptionLayout.sentences(value, language: language)
+            guard let last = parts.last else { return }
+            let source = max(0, sourcePosition ?? 0), translated = parts.count - 1
+            if current.isEmpty {
+                completed = Array(parts.dropLast().suffix(2))
+            } else {
+                // Recognition and translation may revise punctuation independently.
+                // Retain the sentence actually displayed when either moves forward.
+                let advance = max(source, translated) - position
+                if advance > 0 {
+                    completed = Array((completed + [current] + parts.dropLast().suffix(max(0, advance - 1))).suffix(2))
+                }
+            }
+            position = max(position, source, translated)
+            current = last; text = value
+        }
+    }
+    private struct Pending { let text: String; let sourcePosition: Int? }
+    private var active: Cue?
+    // Keep empty slots too: a delayed translation belongs to its original cue.
+    private var retired: [Cue] = []
+    var text: String { active?.text ?? "" }
+    var currentText: String { active?.current ?? "" }
+    var history: [String] { Array((retired.flatMap(\.sentences) + (active?.completed ?? [])).suffix(2)) }
     var previous: String { history.last ?? "" }
-    private var latest = ""
-    private var pending: String?
+    private var pending: Pending?
     private var lastDisplay = -Double.infinity
-    private var cue: UUID?
     private var language: CaptionLanguage = .english
-    var nextWakeup: Double? {
-        pending == nil ? nil : lastDisplay + Self.updateInterval
-    }
+    var nextWakeup: Double? { pending == nil ? nil : lastDisplay + Self.updateInterval }
+
     mutating func begin(_ id: UUID, language: CaptionLanguage = .english, now: Double) {
-        guard cue != id || self.language != language else { return }
-        // Promote only when the utterance changes, never on a partial correction.
-        // A recognizer's final phrase may have no punctuation; retain it as heard.
-        history = self.language == language
-            ? Array((history + SentenceCaptionLayout.sentences(latest, language: language)).suffix(2)) : []
+        guard active?.id != id || self.language != language else { return }
+        if self.language != language { retired = [] }
+        else if let active { retired = Array((retired + [active]).suffix(2)) }
         self.language = language
-        cue = id; text = ""; latest = ""; pending = nil; lastDisplay = -.infinity
+        active = Cue(id: id); pending = nil; lastDisplay = -.infinity
     }
-    mutating func receive(_ value: String, now: Double, final: Bool = false) {
+    mutating func receive(_ value: String, now: Double, final: Bool = false, cueID: UUID? = nil, sourcePosition: Int? = nil) {
         guard !value.isEmpty else { return }
-        latest = value
-        if value == text { pending = nil; return }
+        if let cueID, cueID != active?.id {
+            if let index = retired.firstIndex(where: { $0.id == cueID }) {
+                retired[index].update(value, sourcePosition: sourcePosition, language: language)
+            }
+            return
+        }
+        if value == text && sourcePosition == nil { pending = nil; return }
         if text.isEmpty || final || now - lastDisplay >= Self.updateInterval {
-            text = value; lastDisplay = now; pending = nil
-        } else { pending = value }
+            active?.update(value, sourcePosition: sourcePosition, language: language)
+            lastDisplay = now; pending = nil
+        } else { pending = Pending(text: value, sourcePosition: sourcePosition) }
     }
     mutating func flush(now: Double) {
-        if let pending { text = pending; lastDisplay = now; self.pending = nil }
+        if let pending {
+            active?.update(pending.text, sourcePosition: pending.sourcePosition, language: language)
+            lastDisplay = now; self.pending = nil
+        }
     }
     mutating func tick(now: Double) {
         if now - lastDisplay >= Self.updateInterval { flush(now: now) }
@@ -74,22 +109,22 @@ struct SentenceCaptionLayout {
     static func layout(text: String, previous: String, fontSize: Double, width: Double, height: Double, language: CaptionLanguage = .english) -> Self {
         layout(text: text, history: previous.isEmpty ? [] : [previous], fontSize: fontSize, width: width, height: height, language: language)
     }
-    static func context(text: String, history: [String], language: CaptionLanguage) -> (current: String, prior: [String]) {
+    static func context(text: String, history: [String], language: CaptionLanguage, historyLimit: Int = 2) -> (current: String, prior: [String]) {
         let parts = sentences(text, language: language)
-        return (parts.last ?? "", Array((history + parts.dropLast()).suffix(2)))
+        return (parts.last ?? "", Array((history + parts.dropLast()).suffix(max(0, min(2, historyLimit)))))
     }
     static func historySize(_ size: Double) -> Double { min(size, max(14, size * 0.8)) }
-    static func minimumHeight(fontSize: Double) -> Double {
-        CaptionTypesetting.lineHeight(min(fontSize, 18)) + 2 * CaptionTypesetting.lineHeight(historySize(min(fontSize, 18))) + 8
+    static func minimumHeight(fontSize: Double, historyLimit: Int = 2) -> Double {
+        CaptionTypesetting.lineHeight(min(fontSize, 18)) + Double(max(0, min(2, historyLimit))) * (CaptionTypesetting.lineHeight(historySize(min(fontSize, 18))) + 4)
     }
-    static func preferredHeight(text: String, history: [String], fontSize: Double, width: Double, language: CaptionLanguage) -> Double {
-        let (current, prior) = context(text: text, history: history, language: language)
-        return max(minimumHeight(fontSize: fontSize),
+    static func preferredHeight(text: String, history: [String], fontSize: Double, width: Double, language: CaptionLanguage, historyLimit: Int = 2) -> Double {
+        let (current, prior) = context(text: text, history: history, language: language, historyLimit: historyLimit)
+        return max(minimumHeight(fontSize: fontSize, historyLimit: historyLimit),
             Double(CaptionTypesetting.lineCount(current, size: fontSize, width: width)) * CaptionTypesetting.lineHeight(fontSize)
             + prior.reduce(0.0) { $0 + Double(CaptionTypesetting.lineCount($1, size: historySize(fontSize), width: width)) * CaptionTypesetting.lineHeight(historySize(fontSize)) + 4 })
     }
-    static func layout(text: String, history: [String], fontSize: Double, width: Double, height: Double, language: CaptionLanguage = .english) -> Self {
-        let (current, prior) = context(text: text, history: history, language: language)
+    static func layout(text: String, history: [String], fontSize: Double, width: Double, height: Double, language: CaptionLanguage = .english, historyLimit: Int = 2) -> Self {
+        let (current, prior) = context(text: text, history: history, language: language, historyLimit: historyLimit)
         let available = max(1, height), width = max(1, width)
         func measured(_ value: String, _ size: Double) -> Double {
             Double(CaptionTypesetting.lineCount(value, size: size, width: width)) * CaptionTypesetting.lineHeight(size)

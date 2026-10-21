@@ -65,6 +65,22 @@ struct CaptionAppearance: Codable, Equatable {
     }
 }
 
+struct CaptionHistorySettings: Codable, Equatable {
+    var enabled = true
+    var count = 2
+    var visibleCount: Int { enabled ? max(1, min(2, count)) : 0 }
+    static let storageKey = "captionHistory.v1"
+    func save(to preferences: UserDefaults = .standard) {
+        var normalized = self; normalized.count = max(1, min(2, count))
+        if let data = try? JSONEncoder().encode(normalized) { preferences.set(data, forKey: Self.storageKey) }
+    }
+    static func load(from preferences: UserDefaults = .standard) -> Self {
+        guard let data = preferences.data(forKey: storageKey), var saved = try? JSONDecoder().decode(Self.self, from: data) else { return Self() }
+        saved.count = max(1, min(2, saved.count))
+        return saved
+    }
+}
+
 enum CaptionTypesetting {
     static func lineHeight(_ size: Double, weight: NSFont.Weight = .regular, spacing: Double = 5) -> Double {
         let font = NSFont.systemFont(ofSize: size, weight: weight)

@@ -118,7 +118,15 @@ struct ControlView: View {
             }.font(.system(size: 11)).buttonStyle(.bordered)
             Text(model.positionLocked ? "固定中は、字幕の下にあるスライドを操作できます。" : "字幕の背景をドラッグして移動、右下のつまみでサイズを変更できます。")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
-            Text("現在の一文と直前の二文を表示します。履歴は薄く残り、新しい文が来ると入れ替わります。")
+            HStack {
+                Toggle("履歴を表示", isOn: $model.historySettings.enabled).toggleStyle(.switch)
+                Spacer()
+                Picker("表示する履歴", selection: $model.historySettings.count) {
+                    Text("1文").tag(1)
+                    Text("2文").tag(2)
+                }.pickerStyle(.segmented).frame(width: 160).disabled(!model.historySettings.enabled)
+            }.font(.system(size: 12))
+            Text("現在の文に加え、直前の1〜2文を薄く表示します。オフでは現在の文だけを表示します。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 24) {
                 ValueAdjustment(title: "原文の文字サイズ", value: $model.appearance.sourceFontSize, range: 14...90, unit: "pt")

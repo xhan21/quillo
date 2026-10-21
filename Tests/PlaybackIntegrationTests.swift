@@ -65,6 +65,7 @@ import AppKit
         speech("三つ目", segment: third)
         translator.complete("Second")
         try await eventually { model.logs[1].translation == "Second" }
+        precondition(model.sentenceReading.previous == "Second", "Late first translation fills the preceding history slot")
         precondition(model.sourceText == "三つ目" && model.translatedText.isEmpty, "An old utterance can update its log, never the new caption")
         try await eventually { translator.calls.count == 1 }
         translator.fail()
@@ -89,6 +90,7 @@ import AppKit
         translator.complete("Previous final result.")
         try await eventually { model.logs[3].translation == "Previous final result." }
         precondition(model.translatedText == "Current" && !model.logs[3].translationIncomplete)
+        precondition(model.sentenceReading.history == ["Third, continued", "Previous final result."], "Late final corrects history without replacing the current caption")
 
         speech("消去前の発話", segment: UUID())
         try await eventually { translator.calls.count == 1 }
@@ -193,8 +195,9 @@ import AppKit
             else { defaults.removeObject(forKey: "readableEnglish.v1") }
         }
         let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
-        let savedMode = model.displayMode
-        defer { model.displayMode = savedMode; model.shutdown() }
+        let savedMode = model.displayMode, savedHistory = model.historySettings
+        defer { model.displayMode = savedMode; model.historySettings = savedHistory; model.shutdown() }
+        model.historySettings = CaptionHistorySettings()
         model.clearCaption(); model.targetLanguage = language; model.languageChanged()
         model.setCaptionMode(.translationOnly); model.isListening = true
         precondition(model.captionPresentation.reading != nil, "Sentence display is always active even when the old saved preference was off")
@@ -239,6 +242,23 @@ import AppKit
         model.setCaptionMode(.bilingual)
         precondition(model.captionPresentation.reading?.history == [complete, next] && model.captionPresentation.sourceReading?.history.count == 2)
         precondition(model.isListening && model.translationSessionID == session, "History display switches preserve the live session")
+        let logs = model.logs.map { $0.source + $0.translation }
+        model.historySettings.count = 1
+        precondition(model.captionPresentation.reading?.history == [next] && model.captionPresentation.sourceReading?.history == ["次の例"])
+        let oneHistoryHeight = model.minimumPanelHeight
+        model.historySettings.enabled = false
+        precondition(model.captionPresentation.reading?.history.isEmpty == true && model.captionPresentation.sourceReading?.history.isEmpty == true)
+        precondition(model.minimumPanelHeight < oneHistoryHeight && model.visibleCaption.translation == third)
+        speech("四つ目の文です。", cue: UUID())
+        try await eventually { translator.calls.count == 1 }
+        let fourth = language == .english ? "A fourth sentence." : language.normalizeScript("这是第四句。")
+        model.historySettings.count = 2; model.historySettings.enabled = true
+        precondition(model.captionPresentation.reading?.history == [next, third], "History continues recording while hidden")
+        precondition(model.isListening && model.translationSessionID == session && model.translationReady && translator.calls.count == 1)
+        translator.complete(fourth)
+        try await eventually { model.visibleCaption.translation == fourth }
+        precondition(Array(model.logs.prefix(logs.count)).map { $0.source + $0.translation } == logs)
+
         speech("取り消す内容", cue: UUID())
         try await eventually { translator.calls.count == 1 }
         model.clearCaption(); translator.complete("Must not return.")

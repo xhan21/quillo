@@ -27,6 +27,10 @@ final class AppModel: ObservableObject {
     @Published var overlayVisible = false
     @Published var positionLocked = false
     @Published var appearance = CaptionAppearance.load() { didSet { appearance.save() } }
+    @Published var historySettings = CaptionHistorySettings.load() { didSet { historySettings.save(); updateAppearance() } }
+    var historyLabel: String { historySettings.visibleCount == 0 ? "現在の一文" : "現在 ＋ 前の\(historySettings.visibleCount)文" }
+    private var currentSourceSentence: String { sourceReading.text.isEmpty ? sourceText : sourceReading.currentText }
+    private var currentTranslatedSentence: String { sentenceReading.text.isEmpty ? translatedText : sentenceReading.currentText }
     @Published private(set) var sentenceReading = SentenceCaptionReading()
     @Published private(set) var sourceReading = SentenceCaptionReading()
     @Published var displayMode = CaptionDisplayMode(rawValue: UserDefaults.standard.string(forKey: "captionDisplayMode") ?? "") ?? .bilingual {
@@ -67,14 +71,14 @@ final class AppModel: ObservableObject {
         let size = captionLayoutSize
         let showsSource = !requiresTranslation || displayMode == .bilingual
         let budget = max(1, size.height - 76) / (showsSource && requiresTranslation ? 2 : 1)
-        let original = showsSource ? SentenceCaptionLayout.layout(text: sourceText, history: sourceReading.history,
-            fontSize: appearance.sourceFontSize, width: size.width - 60, height: budget, language: sourceLanguage) : nil
+        let original = showsSource ? SentenceCaptionLayout.layout(text: currentSourceSentence, history: sourceReading.history,
+            fontSize: appearance.sourceFontSize, width: size.width - 60, height: budget, language: sourceLanguage, historyLimit: historySettings.visibleCount) : nil
         let waiting = liveTranslationFailed ? "翻訳を再準備してください" : nil
         var reading: SentenceCaptionLayout?
         if requiresTranslation && SentenceCaptionLayout.supports(targetLanguage) {
-            reading = SentenceCaptionLayout.layout(text: sentenceReading.text.isEmpty ? translatedText : sentenceReading.text,
+            reading = SentenceCaptionLayout.layout(text: currentTranslatedSentence,
                 history: sentenceReading.history, fontSize: appearance.translationFontSize, width: size.width - 60,
-                height: budget, language: targetLanguage)
+                height: budget, language: targetLanguage, historyLimit: historySettings.visibleCount)
         }
         let translation = reading?.text ?? ""
         // A retained previous sentence has its own dimmed block. Its header says
@@ -92,8 +96,8 @@ final class AppModel: ObservableObject {
     }
     var minimumPanelHeight: Double {
         let source = !requiresTranslation || displayMode == .bilingual
-        let block = max(source ? SentenceCaptionLayout.minimumHeight(fontSize: appearance.sourceFontSize) : 0,
-                        requiresTranslation ? SentenceCaptionLayout.minimumHeight(fontSize: appearance.translationFontSize) : 0)
+        let block = max(source ? SentenceCaptionLayout.minimumHeight(fontSize: appearance.sourceFontSize, historyLimit: historySettings.visibleCount) : 0,
+                        requiresTranslation ? SentenceCaptionLayout.minimumHeight(fontSize: appearance.translationFontSize, historyLimit: historySettings.visibleCount) : 0)
         let total = 76 + block * (source && requiresTranslation ? 2 : 1)
         return max(110, ceil(total / 10) * 10)
     }
@@ -102,10 +106,10 @@ final class AppModel: ObservableObject {
         let visible = screen?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
         let source = !requiresTranslation || displayMode == .bilingual
         let width = min(appearance.width, visible.width - 24)
-        let original = source ? SentenceCaptionLayout.preferredHeight(text: sourceText, history: sourceReading.history,
-            fontSize: appearance.sourceFontSize, width: width - 60, language: sourceLanguage) : 0
-        let translated = requiresTranslation ? SentenceCaptionLayout.preferredHeight(text: sentenceReading.text.isEmpty ? translatedText : sentenceReading.text,
-            history: sentenceReading.history, fontSize: appearance.translationFontSize, width: width - 60, language: targetLanguage) : 0
+        let original = source ? SentenceCaptionLayout.preferredHeight(text: currentSourceSentence, history: sourceReading.history,
+            fontSize: appearance.sourceFontSize, width: width - 60, language: sourceLanguage, historyLimit: historySettings.visibleCount) : 0
+        let translated = requiresTranslation ? SentenceCaptionLayout.preferredHeight(text: currentTranslatedSentence,
+            history: sentenceReading.history, fontSize: appearance.translationFontSize, width: width - 60, language: targetLanguage, historyLimit: historySettings.visibleCount) : 0
         let natural = 76 + max(original, translated) * (source && requiresTranslation ? 2 : 1)
         let height = appearance.automaticHeight ? min(natural, max(minimumPanelHeight, visible.height * 0.6)) : appearance.height
         return NSSize(width: min(appearance.width, visible.width - 24), height: min(visible.height - 24, max(minimumPanelHeight, height)))
@@ -368,12 +372,13 @@ final class AppModel: ObservableObject {
         if let index = logs.firstIndex(where: { $0.id == job.cueID }) {
             logs[index].translation = text; logs[index].translationIncomplete = incomplete
         }
-        guard currentID == job.cueID else { return } // A previous utterance may only update its log.
+        // Late results correct their own history slot, never the current caption.
+        sentenceReading.receive(text, now: ProcessInfo.processInfo.systemUptime,
+            final: currentIsFinal && !incomplete, cueID: job.cueID,
+            sourcePosition: max(0, SentenceCaptionLayout.sentences(job.text, language: sourceLanguage).count - 1))
+        guard currentID == job.cueID else { return }
         translatedText = text; translationUpdating = requiresTranslation && incomplete; liveTranslationFailed = false
-        if SentenceCaptionLayout.supports(targetLanguage) {
-            sentenceReading.receive(text, now: ProcessInfo.processInfo.systemUptime, final: currentIsFinal && !incomplete)
-            scheduleReadingUpdate()
-        }
+        scheduleReadingUpdate()
     }
 
     func toggleMic() {

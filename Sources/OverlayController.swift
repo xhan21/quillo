@@ -139,7 +139,7 @@ struct OverlayCaptionView: View {
                 Text(model.captionKind).font(.system(size: 10, weight: .medium))
                 Spacer()
                 Text(presentation.reading?.continued == true || presentation.sourceReading?.continued == true ? "長文の続き" : model.liveLabel)
-                Text("現在 ＋ 前の2文")
+                Text(model.historyLabel)
                 Text(model.sourceLanguage.name + (model.requiresTranslation ? " → " + model.targetLanguage.name : ""))
             }
             .font(.system(size: 10)).foregroundStyle(style.foreground.opacity(0.60)).lineLimit(1)
