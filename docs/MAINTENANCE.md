@@ -44,6 +44,8 @@
 
 履歴のオン／オフと表示数（1文／2文）は表示だけの設定です。内部の履歴記録は続け、マイク・翻訳セッションを作り直さないでください。発話IDに対応する履歴枠へ遅延翻訳を反映する回帰テストも維持します。
 
+マイクの履歴変更では、句点も新しい認識IDも来ない累積途中結果を必ずテストしてください。`SpeechPhraseTests`と`PlaybackIntegrationTests`で確認します。`zsh Tools/build-speech-history-check.sh`で作る`build/QuilloSpeechHistoryCheck.app`は、架空の合成音声を実Apple Speechへ流し、実Translationと本番の字幕表示へつなげます。マイクを使わず、結果は`/private/tmp/quillo-speech-history-check.json`へ出力します。これは実際の教室音声の精度確認とは別です。
+
 英語・中国語訳の読みやすさ表示を変更した場合は`SentenceCaptionReadingTests`と`PlaybackIntegrationTests`を実行します。`zsh Tools/build-reading-check.sh`で作る`build/QuilloReadingCheck.app`は、架空の日本語・英語を実Apple Translationへ渡し、英語・中国語（簡体字／繁体字）の訳の標準表示を確認できます。途中認識を模した入力であり、マイクは使用しません。結果は`/private/tmp/quillo-caption-reading-check.json`です。訳文の意味を書き換える機能は未実装です。
 
 範囲編集を変更した場合は`SlideRegionEditingTests`に加え、`zsh Tools/build-region-check.sh`で作る`build/QuilloRegionCheck.app`で、移動・角と辺の拡縮・元に戻す・キャンセルを確認します。これは架空のスライドを使う画面で、他アプリの画面共有やマイクは使用しません。

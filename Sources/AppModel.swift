@@ -14,7 +14,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var sourceText = ""
     @Published private(set) var translatedText = ""
     @Published var captionKind = "サンプル字幕"
-    @Published var status = "「字幕を表示」で、いつもの資料に字幕を重ねられます。"
+    @Published var status = "「話して字幕を出す」で、マイク入力と字幕表示を一緒に始めます。"
     @Published var translationStatus = "翻訳するには、最初に言語を準備します。"
     @Published var translationReady = false
     @Published var preparingTranslation = false
@@ -51,6 +51,7 @@ final class AppModel: ObservableObject {
     private var demoTask: Task<Void, Never>?
     private var micStartTask: Task<Void, Never>?
     private var readingTask: Task<Void, Never>?
+    private var speechPhrases = SpeechPhraseSegmenter()
     private var currentIsFinal = false
     private var translationContinuation: AsyncStream<Void>.Continuation?
     private var translationEpoch = 0
@@ -155,7 +156,13 @@ final class AppModel: ObservableObject {
         if let index = logs.firstIndex(where: { $0.id == id }) { logs[index].translationIncomplete = requiresTranslation }
         if requiresTranslation { submitTranslation(id: id, text: sourceText) }
     }
-    func toggleOverlay() { overlayVisible.toggle(); if overlayVisible { overlay?.show() } else { overlay?.hide() } }
+    var microphoneActionTitle: String { isStartingMic ? "開始を中止" : isListening ? "字幕を停止" : "話して字幕を出す" }
+    func hideOverlay() { overlayVisible = false; overlay?.hide() }
+    func toggleOverlay() {
+        if overlayVisible { hideOverlay() }
+        else if isListening || isStartingMic { ensureOverlay() }
+        else { toggleMic() }
+    }
     func ensureOverlay() { if !overlayVisible { overlayVisible = true; overlay?.show() } }
     func toggleLock() { positionLocked.toggle(); overlay?.updateInteraction() }
     func updateAppearance() {
@@ -175,7 +182,7 @@ final class AppModel: ObservableObject {
         }
     }
     private func resetLiveCaption() {
-        readingTask?.cancel(); readingTask = nil; sentenceReading = SentenceCaptionReading(); sourceReading = SentenceCaptionReading(); currentIsFinal = false
+        readingTask?.cancel(); readingTask = nil; sentenceReading = SentenceCaptionReading(); sourceReading = SentenceCaptionReading(); speechPhrases = SpeechPhraseSegmenter(); currentIsFinal = false
         contentGeneration += 1; mailbox.removeAll(); revisions.removeAll(); translatedRevisions.removeAll(); submitted.removeAll()
         currentID = nil; sourceText = ""; translatedText = ""; translationUpdating = false; liveTranslationFailed = false
     }
@@ -216,9 +223,9 @@ final class AppModel: ObservableObject {
     private func handleSpeech(_ snapshot: SpeechSnapshot, final: Bool) {
         guard isListening || isStartingMic else { return }
         isStartingMic = false
-        receive(snapshot.text, id: snapshot.segmentID, kind: "マイク字幕", final: final)
-        // Partial and final results update the same transcript entry. Finalization
-        // needs no display delay; the last pending translation already has full text.
+        for update in speechPhrases.receive(snapshot, final: final, now: ProcessInfo.processInfo.systemUptime) {
+            receive(update.snapshot.text, id: update.snapshot.segmentID, kind: "マイク字幕", final: update.final)
+        }
     }
     private func submitTranslation(id: UUID, text: String) {
         guard let revision = revisions[id] else { return }

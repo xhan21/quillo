@@ -108,9 +108,46 @@ import AppKit
         precondition(model.sourceText == long && model.logs.last?.source == long)
         precondition(long.hasSuffix(model.visibleCaption.source) && model.visibleCaption.source.hasSuffix("最後です。"))
         model.shutdown()
+        try await continuousMicrophoneHistory()
         try await modeSwitching()
         for language in [CaptionLanguage.english, .chinese, .traditionalChinese] { try await sentenceReadingMode(language) }
         print("PASS: synchronous original update (\(updateTime)), partial translation progress, coalescing, no duplicated finals, no stale overwrite, live priority + final logs, errors recover, clear cancels, full logs, one translation in flight")
+    }
+
+    @MainActor static func continuousMicrophoneHistory() async throws {
+        let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
+        let savedMode = model.displayMode, savedHistory = model.historySettings
+        defer { model.displayMode = savedMode; model.historySettings = savedHistory; model.shutdown() }
+        model.clearCaption(); model.setCaptionMode(.bilingual); model.historySettings = CaptionHistorySettings(); model.isListening = true
+        let translator = ControlledTranslator(), taskID = UUID()
+        let worker = Task { await model.runTranslationWorker(prepare: {}, translate: { try await translator.translate($0) }) }
+        let phrases = ["身近な道具を観察します", "次に試作品を作ります", "最後に比較します", "気づきを発表します"]
+        let translations = ["Observe familiar tools", "Build a prototype", "Compare the results", "Present your findings"]
+        var full = "", words: [SpeechWord] = []
+        let session = model.translationSessionID
+        for i in phrases.indices {
+            if !full.isEmpty { full += " " }
+            words.append(SpeechWord(range: NSRange(location: (full as NSString).length, length: (phrases[i] as NSString).length), timestamp: Double(i) * 4, duration: 2))
+            full += phrases[i]
+            model.speech.onText?(SpeechSnapshot(segmentID: taskID, text: full, words: words), false)
+            precondition(model.sourceText == phrases[i], "Mic callbacks from the same recognition ID advance immediately")
+            try await eventually { translator.calls.count == 1 }
+            precondition(translator.calls[0].text == phrases[i], "Translate the new phrase, not a growing lecture transcript")
+            translator.complete(translations[i])
+            try await eventually { model.visibleCaption.translation == translations[i] }
+            precondition(model.sourceReading.history == Array(phrases.prefix(i).suffix(2)))
+            precondition(model.sentenceReading.history == Array(translations.prefix(i).suffix(2)))
+            precondition(model.translationSessionID == session && model.isListening)
+        }
+        precondition(model.logs.map(\.source) == phrases && model.logs.map(\.translation) == translations)
+        model.historySettings.count = 1
+        precondition(model.captionPresentation.reading?.history == [translations[2]])
+        model.historySettings.enabled = false
+        precondition(model.captionPresentation.reading?.history.isEmpty == true)
+        model.historySettings.enabled = true
+        precondition(model.captionPresentation.reading?.history == [translations[2]])
+        model.clearCaption(); worker.cancel(); await worker.value
+        print("PASS: cumulative unpunctuated microphone callbacks advance original and translated history without restarting recognition/session")
     }
 
     @MainActor static func modeSwitching() async throws {

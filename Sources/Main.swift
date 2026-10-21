@@ -69,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc func toggleSummaryPanel() { model.slides.togglePanel() }
     @objc func toggleSummaryLock() { model.slides.positionLocked.toggle() }
     @objc func stopMic() { model.stopMic() }
+    @objc func toggleMic() { model.toggleMic() }
     @objc func showHelp() { showWindow(); model.helpVisible = true }
     @objc func quit() { NSApp.terminate(nil) }
 
@@ -89,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         editItem.submenu = editMenu; mainMenu.addItem(editItem)
         let displayItem = NSMenuItem(); let displayMenu = NSMenu(title: "字幕")
+        displayMenu.addItem(menuItem("話して字幕を出す／停止", #selector(toggleMic)))
         displayMenu.addItem(menuItem("字幕の表示を切り替え", #selector(toggleOverlay)))
         displayMenu.addItem(menuItem("位置の固定を切り替え", #selector(toggleLock)))
         displayMenu.addItem(menuItem("マイクを停止", #selector(stopMic)))
@@ -103,9 +105,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(menuItem(model.slides.panelVisible ? "要約を隠す" : "要約を表示", #selector(toggleSummaryPanel)))
         menu.addItem(menuItem(model.slides.positionLocked ? "要約位置の固定を解除" : "要約位置を固定", #selector(toggleSummaryLock)))
         menu.addItem(.separator())
-        menu.addItem(menuItem(model.overlayVisible ? "字幕を隠す" : "字幕を表示", #selector(toggleOverlay)))
+        menu.addItem(menuItem(model.microphoneActionTitle, #selector(toggleMic)))
+        if model.overlayVisible { menu.addItem(menuItem("字幕を隠す", #selector(toggleOverlay))) }
+        else if model.isListening || model.isStartingMic { menu.addItem(menuItem("字幕を再表示", #selector(toggleOverlay))) }
         menu.addItem(menuItem(model.positionLocked ? "字幕位置の固定を解除" : "字幕位置を固定", #selector(toggleLock)))
-        if model.isListening { menu.addItem(menuItem("マイクを停止", #selector(stopMic))) }
         if model.slides.isRunning { menu.addItem(menuItem("資料の要約を停止", #selector(stopSlideTranslation))) }
         menu.addItem(.separator())
         menu.addItem(menuItem("使い方", #selector(showHelp)))

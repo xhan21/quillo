@@ -9,6 +9,8 @@ $SWIFT Sources/CaptionSupport.swift Sources/CaptionAppearance.swift Tests/Appear
 build/appearance-tests
 $SWIFT Sources/CaptionSupport.swift Sources/CaptionAppearance.swift Sources/CaptionPlayback.swift Sources/CaptionPaginator.swift Tests/PlaybackTests.swift -o build/playback-tests
 build/playback-tests
+$SWIFT Sources/CaptionSupport.swift Sources/CaptionPlayback.swift Tests/SpeechPhraseTests.swift -o build/speech-phrase-tests
+build/speech-phrase-tests
 $SWIFT Sources/CaptionSupport.swift Sources/CaptionAppearance.swift Sources/CaptionPaginator.swift Sources/SentenceCaptionReading.swift Tests/SentenceCaptionReadingTests.swift -o build/sentence-reading-tests -framework AppKit -framework NaturalLanguage
 build/sentence-reading-tests
 $SWIFT Sources/CaptionSupport.swift Sources/SlideLayout.swift Sources/SlidePanelLayout.swift Sources/SlidePanelPresentation.swift Tests/SlidePanelTests.swift -o build/slide-panel-tests -framework AppKit

@@ -79,9 +79,13 @@ struct ControlView: View {
                 Text(model.isListening ? "マイク使用中" : model.isDemoPlaying ? "デモ再生中" : "停止中").font(.system(size: 11)).foregroundStyle(.secondary)
             }
             HStack(spacing: 12) {
-                Button { model.toggleMic() } label: { Label(model.isStartingMic ? "開始を中止" : model.isListening ? "字幕を停止" : "話して字幕を出す", systemImage: model.isListening ? "stop.fill" : "mic.fill") }
+                Button { model.toggleMic() } label: { Label(model.microphoneActionTitle, systemImage: model.isListening ? "stop.fill" : "mic.fill") }
                     .buttonStyle(GreenButtonStyle(destructive: model.isListening))
-                Button(model.overlayVisible ? "字幕を隠す" : "字幕を表示") { model.toggleOverlay() }.buttonStyle(PlainActionStyle())
+                if model.overlayVisible {
+                    Button("字幕を隠す") { model.hideOverlay() }.buttonStyle(PlainActionStyle())
+                } else if model.isListening || model.isStartingMic {
+                    Button("字幕を再表示") { model.ensureOverlay() }.buttonStyle(PlainActionStyle())
+                }
                 Spacer()
                 Button("消去") { model.clearCaption() }.font(.system(size: 11)).buttonStyle(.plain)
             }
@@ -111,7 +115,9 @@ struct ControlView: View {
         VStack(alignment: .leading, spacing: 15) {
             Text("音声字幕の見た目").font(.system(size: 15, weight: .semibold))
             HStack {
-                Button(model.overlayVisible ? "字幕を隠す" : "字幕を表示") { model.toggleOverlay() }
+                Button(model.microphoneActionTitle) { model.toggleMic() }
+                if model.overlayVisible { Button("字幕を隠す") { model.hideOverlay() } }
+                else if model.isListening || model.isStartingMic { Button("字幕を再表示") { model.ensureOverlay() } }
                 Toggle("位置を固定", isOn: Binding(get: { model.positionLocked }, set: { _ in model.toggleLock() })).toggleStyle(.switch)
                 Spacer()
                 Button("画面下に戻す") { model.overlay?.moveToSelectedScreen() }

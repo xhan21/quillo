@@ -84,7 +84,8 @@ final class SpeechCapture {
         tapInstalled = true
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             let snapshot = result.map { result in
-                SpeechSnapshot(segmentID: segmentID, text: result.bestTranscription.formattedString)
+                SpeechSnapshot(segmentID: segmentID, text: result.bestTranscription.formattedString,
+                    words: result.bestTranscription.segments.map { SpeechWord(range: $0.substringRange, timestamp: $0.timestamp, duration: $0.duration) })
             }
             let isFinal = result?.isFinal ?? false
             let errorDescription = error?.localizedDescription
