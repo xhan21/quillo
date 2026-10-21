@@ -118,7 +118,7 @@ struct ControlView: View {
             }.font(.system(size: 11)).buttonStyle(.bordered)
             Text(model.positionLocked ? "固定中は、字幕の下にあるスライドを操作できます。" : "字幕の背景をドラッグして移動、右下のつまみでサイズを変更できます。")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
-            Text("英語・中国語（簡体字／繁体字）の字幕は、一文を優先して文字サイズを自動調整します。")
+            Text("現在の一文と直前の二文を表示します。履歴は薄く残り、新しい文が来ると入れ替わります。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 24) {
                 ValueAdjustment(title: "原文の文字サイズ", value: $model.appearance.sourceFontSize, range: 14...90, unit: "pt")
@@ -133,7 +133,7 @@ struct ControlView: View {
                         ValueAdjustment(title: "幅", value: $model.appearance.width, range: 320...2000, step: 10, unit: "pt")
                         ValueAdjustment(title: "高さ", value: $model.appearance.height, range: model.minimumPanelHeight...900, step: 10, unit: "pt").disabled(model.appearance.automaticHeight)
                     }
-                    Toggle("高さを字幕2行ずつに合わせる", isOn: $model.appearance.automaticHeight)
+                    Toggle("高さを現在の文と履歴に合わせる", isOn: $model.appearance.automaticHeight)
                     Picker("表示画面", selection: $model.selectedScreen) { ForEach(Array(model.screens.enumerated()), id: \.offset) { offset, screen in Text(screen.localizedName).tag(offset) } }
                         .onChange(of: model.selectedScreen) { _, _ in model.overlay?.moveToSelectedScreen() }
                 }.padding(.top, 12)

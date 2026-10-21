@@ -83,6 +83,12 @@ import AppKit
         precondition(panelOCR.blocks.map(\.text) == cropped.blocks.map(\.text) && panelOCR.allTextRects.isEmpty, "Separate panel OCR reads only selected crops")
         let multiple = try SlideAnalyzer.analyze(image: image, size: size, language: .japanese, ignored: [], regions: [firstRegion, secondRegion])
         precondition(multiple.blocks.count == 2 && multiple.blocks[1].text.contains("処理した結果"))
+        precondition(multiple.regionSources.map(\.number) == [1, 2] && multiple.regionSources[0].text.contains("入力") && multiple.regionSources[1].text.contains("処理した結果"), "OCR retains each selection's number")
+        let blank = CGRect(x: 0.82, y: 0.85, width: 0.12, height: 0.10)
+        let emptyFirst = try SlideAnalyzer.analyze(image: image, size: size, language: .japanese, ignored: [], regions: [blank, secondRegion], buildOccupancy: false)
+        precondition(emptyFirst.regionSources.count == 2 && emptyFirst.regionSources[0].text.isEmpty && emptyFirst.regionSources[1].text.contains("処理した結果"), "An empty first area must not renumber the second area")
+        let reversed = try SlideAnalyzer.analyze(image: image, size: size, language: .japanese, ignored: [], regions: [secondRegion, firstRegion], buildOccupancy: false)
+        precondition(reversed.regionSources[0].text.contains("処理した結果") && reversed.signature != multiple.signature, "Region order changes the source association and invalidates the page")
         let croppedPlacement = SlidePlacement.annotations(for: cropped.blocks.map { SlideTranslation(id: $0.id, source: $0, text: "The computer processes the information.") }, occupancy: cropped.occupancy, fontSize: 14)
         precondition(!croppedPlacement.placed.isEmpty, "Placement searches the whole window, not only the selected rectangle")
         let normalized = SlideRegionGeometry.normalized(CGRect(x: 30, y: 60, width: 100, height: 80), in: CGRect(x: 10, y: 20, width: 200, height: 160))!

@@ -18,10 +18,10 @@ I made Quillo to handle captions separately from the presentation app and provid
 ## What it does
 
 - **Live captions and translation** — Speak Japanese or English; the original text and translation update as you speak.
-- **Slide summaries** — Select an area to read and show translated key points in a separate panel. Move or resize the selection later without drawing it again.
+- **Slide summaries** — Select an area to read and show translated key points in a separate panel. Move or resize selections later; multiple areas have separately numbered summaries.
 - **Flexible placement** — Drag the panels anywhere and adjust their size, fonts, and backgrounds.
 - **Display choices** — Show the original, the translation, or both. Supports Japanese, English, Simplified Chinese, and Traditional Chinese.
-- **Readable English and Chinese captions** — Prioritize a complete sentence, adjust its font size, and reduce frequent partial rewrites. This is the standard display.
+- **Current sentence plus two earlier sentences** — Keep earlier captions dimmed and adjust font sizes automatically, for both originals and translations. No scrolling.
 - **Class glossaries** — Add terminology for each set of teaching materials to help recognition and keep translations consistent.
 
 Microphone input supports **Japanese and English**. Caption translation targets, material languages, and typed input support **Japanese, English, Simplified Chinese, and Traditional Chinese**. Choose the spoken and material languages separately.
@@ -62,7 +62,7 @@ The controls are currently in Japanese:
 ## Things to know
 
 - Speech recognition, translation, and summaries run on your Mac. Initial language and model downloads require internet access.
-- The default English and Chinese (Simplified/Traditional) display prioritizes the latest sentence; unusually long sentences show a continuation from a clause or word boundary. Other captions follow the latest lines. Summaries adjust to fit their panel.
+- Captions show the current sentence and two earlier sentences. Exceptionally long text in a small panel shows its tail; the transcript keeps the full text. Each selected area gets a summary sized to fit the panel.
 - Recognition, translation, and AI summaries can contain errors or take time. Test long sessions and full-screen presentations in your own teaching setup.
 - Quillo does not save audio or video recordings. Caption logs are cleared when the app quits unless you explicitly save them.
 

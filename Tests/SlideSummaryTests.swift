@@ -95,6 +95,62 @@ import AppKit
         service.complete("A normal summary.")
         try await eventually { model.text == "A normal summary." }
         model.clear()
+        model.resize(CGSize(width: 438, height: 250))
+        let areas: [SlideRegionSource] = [.init(number: 1, text: "First area: input."), .init(number: 2, text: "Second area: output.")]
+        model.update(regions: areas, target: .english, active: true)
+        try await eventually { service.calls.count == 1 }
+        precondition(service.calls[0].request.source == areas[0].text, "A region request must not contain a different region's text")
+        service.complete("Input is received.")
+        try await eventually { service.calls.count == 1 }
+        precondition(service.calls[0].request.source == areas[1].text)
+        precondition(model.text.contains("【Area 1】\nInput is received.") && model.text.contains("【Area 2】"), "First result appears with its own number while the second is pending")
+        model.update(regions: areas, target: .english, active: false)
+        model.update(regions: areas, target: .english, active: true)
+        try await eventually { service.calls.count == 2 }
+        service.complete("Obsolete second area result.")
+        try await Task.sleep(for: .milliseconds(30))
+        precondition(!model.text.contains("Obsolete") && model.busy, "Resume a partially completed page and reject its old in-flight result")
+        service.complete("Output is displayed.")
+        try await eventually { !model.busy }
+        precondition(model.text == "【Area 1】\nInput is received.\n\n【Area 2】\nOutput is displayed.")
+        precondition(SlidePanelTypesetting.fit(model.text, size: CGSize(width: 438, height: 250), preferredFontSize: 32).pages.count == 1)
+        let before = service.total
+        model.update(regions: areas, target: .english, active: true)
+        precondition(service.total == before, "Unchanged OCR frames do not resummarize areas")
+        model.update(regions: [.init(number: 1, text: ""), .init(number: 2, text: "Only area two has text.")], target: .traditionalChinese, active: true)
+        try await eventually { service.calls.count == 1 }
+        precondition(service.calls[0].request.source == "Only area two has text.")
+        service.complete("輸出顯示結果。")
+        try await eventually { !model.busy }
+        precondition(model.text.contains("【區域1】\n未辨識到文字。") && model.text.contains("【區域2】\n輸出顯示結果。"), "Empty regions retain their selection numbers")
+        model.update(regions: [.init(number: 1, text: "New first area"), .init(number: 2, text: "New second area")], target: .english, active: true)
+        try await eventually { service.calls.count == 1 }
+        service.calls.removeFirst().reply.resume(throwing: SlideSummaryError.failed)
+        try await eventually { service.calls.count == 1 }
+        service.complete("The second area still works.")
+        try await eventually { !model.busy }
+        precondition(model.text.contains("【Area 1】\nCould not summarize.") && model.text.contains("【Area 2】\nThe second area still works."), "One region failure cannot hide another region")
+        precondition(model.status.contains("範囲1"))
+        model.update(regions: [.init(number: 1, text: "Old selection")], target: .english, active: true)
+        try await eventually { service.calls.count == 1 }
+        model.update(regions: [.init(number: 1, text: ""), .init(number: 2, text: "New selection")], target: .english, active: true)
+        try await eventually { service.calls.count == 2 }
+        service.complete("Do not mislabel this obsolete result.")
+        try await Task.sleep(for: .milliseconds(30))
+        precondition(!model.text.contains("obsolete"))
+        service.complete("A new selection.")
+        try await eventually { !model.busy }
+        precondition(model.text.contains("【Area 2】\nA new selection."))
+        model.clear()
+        model.resize(CGSize(width: 220, height: 70))
+        model.update(regions: (1...3).map { .init(number: $0, text: "") }, target: .english, active: true)
+        try await eventually { !model.busy }
+        precondition(model.text.isEmpty && model.status.contains("大きく"))
+        model.resize(CGSize(width: 438, height: 300))
+        try await eventually { !model.busy }
+        precondition(model.text.contains("【Area 3】\nNo text found."), "Enlarging a panel recovers from insufficient space without requiring another source selection")
+        model.clear()
+        print("PASS: independent numbered regions, empty region numbering, progressive output, per-region errors/cache and stale selection rejection")
         print("PASS: local-only model validation, no truncation, stale result exclusion, stop cancellation, no per-frame requests, page cache, resize compaction, Traditional Chinese target, recoverable errors")
 
         if CommandLine.arguments.contains("--live") {

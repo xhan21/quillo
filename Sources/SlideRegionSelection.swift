@@ -45,7 +45,7 @@ final class SlideRegionSelectionController: NSObject, NSWindowDelegate {
     func dismiss() { completion = nil; window.close() }
     func windowWillClose(_ notification: Notification) { let callback = completion; completion = nil; callback?(nil) }
     private func update() {
-        hint.stringValue = canvas.editing.notice ?? "枠の中をドラッグ：移動 ／ 角・辺をドラッグ：サイズ変更\n枠のない場所をドラッグ：追加（\(canvas.regions.count)か所を選択中）"
+        hint.stringValue = canvas.editing.notice ?? "枠の中をドラッグ：移動 ／ 角・辺をドラッグ：サイズ変更\n枠のない場所をドラッグ：追加（\(canvas.regions.count)か所）。要約にも枠と同じ番号を表示します。"
         applyButton.isEnabled = !canvas.regions.isEmpty && !canvas.editing.isDragging
         undoButton.isEnabled = canvas.editing.canUndo && !canvas.editing.isDragging
         deleteButton.isEnabled = canvas.editing.selected != nil && !canvas.editing.isDragging

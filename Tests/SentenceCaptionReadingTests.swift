@@ -16,9 +16,9 @@ import AppKit
         precondition(reader.text.isEmpty && reader.previous == "If the condition is true, the result is not false.")
         reader.receive("Next, compare", now: 11.01)
         precondition(reader.text == "Next, compare" && !reader.previous.isEmpty)
-        reader.tick(now: 16.01); precondition(reader.previous.isEmpty && reader.nextWakeup == nil)
+        reader.tick(now: 600); precondition(!reader.previous.isEmpty && reader.nextWakeup == nil, "History does not disappear while students read")
         reader.begin(UUID(), now: 17)
-        precondition(reader.previous.isEmpty, "Incomplete fragments are not retained as completed sentences")
+        precondition(reader.history == ["If the condition is true, the result is not false.", "Next, compare"], "Recognized phrases without punctuation also remain available")
         reader.receive("A positive claim", now: 17)
         reader.receive("A corrected claim", now: 17.1)
         reader.flush(now: 17.11)
@@ -89,11 +89,32 @@ import AppKit
             precondition(reader.text == third && reader.nextWakeup == nil)
             reader.begin(UUID(), language: language, now: 11)
             precondition(reader.previous == third)
-            reader.tick(now: 16.1); precondition(reader.previous.isEmpty)
+            reader.tick(now: 160); precondition(reader.previous == third && reader.nextWakeup == nil)
             reader.receive(first, now: 17)
             reader.begin(UUID(), language: .english, now: 18)
             precondition(reader.previous.isEmpty, "Changing language cannot retain the prior language's context")
         }
-        print("PASS: English, Simplified and Traditional Chinese sentence fitting, punctuation/quotes/decimals, clause/word fallback, Unicode, size bounds, immediate final results, bounded partial updates and previous-sentence expiry")
+        for language in CaptionLanguage.allCases {
+            let texts = language == .english ? ["First sentence.", "Second sentence.", "Current sentence.", "Next sentence."]
+                : language == .japanese ? ["最初の文です。", "二つ目の文です。", "現在の文です。", "次の文です。"]
+                : ["这是第一句。", "这是第二句。", "这是当前句。", "这是下一句。"].map(language.normalizeScript)
+            var reader = SentenceCaptionReading()
+            for (i, value) in texts.enumerated() {
+                reader.begin(UUID(), language: language, now: Double(i))
+                reader.receive(value, now: Double(i), final: true)
+            }
+            precondition(reader.history == Array(texts[1...2]), "Exactly two earlier utterances, in chronological order")
+            let layout = SentenceCaptionLayout.layout(text: reader.text, history: reader.history, fontSize: 30, width: 700, height: 220, language: language)
+            precondition(layout.text == texts[3] && layout.history == Array(texts[1...2]) && layout.height <= 220)
+            let withinCue = SentenceCaptionLayout.layout(text: texts.joined(separator: " "), history: ["obsolete"], fontSize: 30, width: 700, height: 220, language: language)
+            precondition(withinCue.history == Array(texts[1...2]), "Multiple sentences in one recognition segment use the same rolling history")
+            reader.receive(texts[0], now: 3.1, final: true)
+            precondition(reader.history == Array(texts[1...2]), "A revision of the current utterance is not a new history entry")
+            let repeated = SentenceCaptionLayout.layout(text: texts[0], history: [texts[0], texts[0]], fontSize: 30, width: 700, height: 220, language: language)
+            precondition(repeated.history.count == 2, "Intentional repetitions are not removed")
+            let small = SentenceCaptionLayout.layout(text: String(repeating: texts[3], count: 1), history: [String(repeating: texts[0], count: 20), String(repeating: texts[1], count: 20)], fontSize: 38, width: 260, height: SentenceCaptionLayout.minimumHeight(fontSize: 38), language: language)
+            precondition(small.history.count == 2 && small.height <= SentenceCaptionLayout.minimumHeight(fontSize: 38), "Small panels reserve both history rows without scrolling")
+        }
+        print("PASS: four-language current plus two-sentence history, persistent context, revision replacement, repeated phrases, fitting bounds, punctuation, Unicode and bounded partial updates")
     }
 }

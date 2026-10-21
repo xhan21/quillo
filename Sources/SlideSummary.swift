@@ -155,7 +155,8 @@ final class SlideSummaryModel: ObservableObject {
     @Published private(set) var text = ""
     @Published private(set) var status = "資料の範囲を選ぶと、内容を短くまとめます。"
     @Published private(set) var busy = false
-    private var source = "", target = CaptionLanguage.english
+    private var regions: [SlideRegionSource] = []
+    private var target = CaptionLanguage.english
     private var size = CGSize(width: 438, height: 330)
     private var token = 0
     private var task: Task<Void, Never>?
@@ -169,7 +170,7 @@ final class SlideSummaryModel: ObservableObject {
         self.generate = generate ?? { try await service.summarize($0) }
     }
     func clear() {
-        token += 1; task?.cancel(); task = nil; busy = false; source = ""; text = ""
+        token += 1; task?.cancel(); task = nil; busy = false; regions = []; text = ""
         status = "資料の範囲を選ぶと、内容を短くまとめます。"
     }
     func invalidateCache() { cache.removeAll() }
@@ -180,51 +181,114 @@ final class SlideSummaryModel: ObservableObject {
         guard self.glossary != glossary || self.sourceLanguage != sourceLanguage else { return }
         self.glossary = glossary; self.sourceLanguage = sourceLanguage
         invalidateCache(); token += 1; task?.cancel(); task = nil; busy = false; text = ""
-        if active && !source.isEmpty { start() }
+        if active && !regions.isEmpty { start() }
     }
     func update(source: String, target: CaptionLanguage, active: Bool) {
-        let changed = source != self.source || target != self.target
-        if changed { clear(); self.source = source; self.target = target }
+        update(regions: source.isEmpty ? [] : [.init(number: 1, text: source)], target: target, active: active)
+    }
+    func update(regions: [SlideRegionSource], target: CaptionLanguage, active: Bool) {
+        let changed = regions != self.regions || target != self.target
+        let resuming = active && !self.active
+        if changed { clear(); self.regions = regions; self.target = target }
         self.active = active
         if !active { token += 1; task?.cancel(); task = nil; busy = false; return }
-        guard !source.isEmpty else { return }
-        if changed || !text.isEmpty && !fits(text) || text.isEmpty && !busy { start() }
+        guard !regions.isEmpty else { return }
+        if changed || resuming || !text.isEmpty && !fits(text) || text.isEmpty && !busy { start() }
     }
     func resize(_ size: CGSize) {
         guard size.width >= 40, size.height >= 40, self.size != size else { return }
         self.size = size
-        if active, !text.isEmpty, !fits(text) { start(delay: true) }
+        if active, !regions.isEmpty, (!text.isEmpty && !fits(text)) || (text.isEmpty && !busy) { start(delay: true) }
     }
     private func fits(_ value: String) -> Bool { SlidePanelTypesetting.measuredHeight(value, fontSize: 12, width: size.width) <= size.height - 4 }
+    private var sectionHeight: Double {
+        let count = max(1, regions.count)
+        // Include blank paragraph spacing between numbered sections in the budget.
+        let gap = SlidePanelTypesetting.measuredHeight("A\n\nB", fontSize: 12, width: size.width)
+            - 2 * SlidePanelTypesetting.measuredHeight("A", fontSize: 12, width: size.width)
+        return (size.height - 4 - Double(count - 1) * gap) / Double(count)
+    }
     private var limit: Int {
         let columns = size.width / (target == .english ? 7.0 : 12.0)
-        let lines = max(2, floor((size.height - 30) / 19))
-        return max(70, min(target == .english ? 420 : 220, Int(columns * lines * 0.65)))
+        let heading = regions.count > 1 ? 26.0 : 0
+        let lines = max(1, floor((sectionHeight - heading - 15) / 19))
+        return max(24, min(target == .english ? 420 : 220, Int(columns * lines * 0.65)))
+    }
+    private func message(_ kind: String) -> String {
+        switch (target, kind) {
+        case (.english, "empty"): return "No text found."
+        case (.english, "error"): return "Could not summarize."
+        case (.english, _): return "Summarizing…"
+        case (.japanese, "empty"): return "文字が見つかりません。"
+        case (.japanese, "error"): return "要約できませんでした。"
+        case (.japanese, _): return "要約しています…"
+        case (.chinese, "empty"): return "未识别到文字。"
+        case (.chinese, "error"): return "无法生成摘要。"
+        case (.chinese, _): return "正在整理要点…"
+        case (.traditionalChinese, "empty"): return "未辨識到文字。"
+        case (.traditionalChinese, "error"): return "無法產生摘要。"
+        case (.traditionalChinese, _): return "正在整理重點…"
+        }
+    }
+    private func decorated(_ value: String, region: SlideRegionSource) -> String {
+        (regions.count > 1 ? region.heading(for: target) + "\n" : "") + value
+    }
+    private func composed(_ values: [Int: String]) -> String {
+        regions.map { decorated(values[$0.number] ?? message($0.text.isEmpty ? "empty" : "busy"), region: $0) }.joined(separator: "\n\n")
     }
     private func start(delay: Bool = false) {
         token += 1; let version = token
         task?.cancel(); text = ""; busy = true; status = "このページの要約を作っています…"
-        let source = source, target = target, initialLimit = limit
-        let terminology = glossary?.summaryTerms(in: source, language: sourceLanguage, target: target) ?? ""
+        let regions = regions, target = target, initialLimit = limit
+        let glossary = glossary, sourceLanguage = sourceLanguage
         task = Task { [weak self] in
             guard let self else { return }
+            var values: [Int: String] = [:], failures: [String] = []
             do {
                 if delay { try await Task.sleep(for: .milliseconds(700)) }
-                for attempt in 0..<3 {
+                guard regions.reduce(0, { $0 + $1.text.utf8.count }) <= 12000 else { throw SlideSummaryError.tooMuchText }
+                for region in regions {
                     try Task.checkCancellation()
-                    let budget = Int(Double(min(initialLimit, self.limit)) * pow(0.65, Double(attempt)))
-                    let key = target.rawValue + "|\(budget)|" + terminology + "|" + source
-                    let result: String
-                    if let saved = self.cache[key] { result = saved }
-                    else { result = try await self.generate(.init(source: source, target: target, characterLimit: budget, terminology: terminology)) }
-                    guard !Task.isCancelled, self.token == version else { return }
-                    if self.fits(result) {
-                        if self.cache.count >= 64 { self.cache.removeAll() }
-                        self.cache[key] = result; self.text = result; self.busy = false; self.task = nil
-                        self.status = "AI要約 · 読み取った文章の要点"; return
+                    guard self.token == version else { return }
+                    if region.text.isEmpty { values[region.number] = self.message("empty"); continue }
+                    let terminology = glossary?.summaryTerms(in: region.text, language: sourceLanguage, target: target) ?? ""
+                    do {
+                        var accepted = false
+                        for attempt in 0..<3 {
+                            try Task.checkCancellation()
+                            let budget = max(24, Int(Double(min(initialLimit, self.limit)) * pow(0.65, Double(attempt))))
+                            let key = target.rawValue + "|\(budget)|" + terminology + "|" + region.text
+                            let result: String
+                            if let saved = self.cache[key] { result = saved }
+                            else { result = try await self.generate(.init(source: region.text, target: target, characterLimit: budget, terminology: terminology)) }
+                            guard !Task.isCancelled, self.token == version else { return }
+                            // Each request sees exactly one selected area. Numbers are
+                            // added by the app, never guessed or reassigned by the model.
+                            let section = self.decorated(result, region: region)
+                            if !captionText(result).isEmpty && SlidePanelTypesetting.measuredHeight(section, fontSize: 12, width: self.size.width) <= self.sectionHeight {
+                                if self.cache.count >= 64 { self.cache.removeAll() }
+                                self.cache[key] = result; values[region.number] = result; accepted = true
+                                break
+                            }
+                        }
+                        if !accepted { throw SlideSummaryError.invalidResult }
+                    } catch {
+                        guard !Task.isCancelled, self.token == version else { return }
+                        if regions.count == 1 { throw error }
+                        values[region.number] = self.message("error")
+                        failures.append("範囲\(region.number)：" + ((error as? SlideSummaryError)?.localizedDescription ?? SlideSummaryError.failed.localizedDescription))
                     }
+                    let partial = self.composed(values)
+                    if self.fits(partial) { self.text = partial }
                 }
-                throw SlideSummaryError.invalidResult
+                guard !Task.isCancelled, self.token == version else { return }
+                let result = self.composed(values)
+                guard self.fits(result) else {
+                    self.text = ""; self.busy = false; self.task = nil
+                    self.status = "範囲ごとの要約を表示するため、要約パネルを大きくしてください。"; return
+                }
+                self.text = result; self.busy = false; self.task = nil
+                self.status = failures.isEmpty ? (regions.count > 1 ? "選択枠と同じ番号で、範囲ごとの要約を表示しています。" : "AI要約 · 読み取った文章の要点") : failures.joined(separator: "\n")
             } catch {
                 guard !Task.isCancelled, self.token == version else { return }
                 self.busy = false; self.task = nil

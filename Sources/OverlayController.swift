@@ -138,31 +138,17 @@ struct OverlayCaptionView: View {
                 Circle().fill(model.isListening ? Color.red.opacity(0.9) : style.translationForeground).frame(width: 5, height: 5)
                 Text(model.captionKind).font(.system(size: 10, weight: .medium))
                 Spacer()
-                Text(presentation.reading?.continued == true ? "訳文の続き" : model.liveLabel)
-                if presentation.reading != nil { Text("読みやすさ優先") }
+                Text(presentation.reading?.continued == true || presentation.sourceReading?.continued == true ? "長文の続き" : model.liveLabel)
+                Text("現在 ＋ 前の2文")
                 Text(model.sourceLanguage.name + (model.requiresTranslation ? " → " + model.targetLanguage.name : ""))
             }
             .font(.system(size: 10)).foregroundStyle(style.foreground.opacity(0.60)).lineLimit(1)
             VStack(alignment: .leading, spacing: 9) {
-            if !caption.source.isEmpty {
-                Text(caption.source)
-                    .font(.system(size: style.sourceFontSize, weight: .medium)).foregroundStyle(style.foreground)
-                    .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
-                    .shadow(color: style.textShadow, radius: 1)
+            if let reading = presentation.sourceReading {
+                sentenceBlock(reading, color: style.foreground, shadow: style.textShadow)
             }
-            VStack(alignment: .leading, spacing: 4) {
-            if let reading = presentation.reading, !reading.previous.isEmpty {
-                Text(reading.previous).font(.system(size: reading.previousFontSize))
-                    .foregroundStyle(style.translationForeground.opacity(0.70))
-                    .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
-                    .shadow(color: style.textShadow, radius: 1)
-                    .accessibilityLabel("Previous sentence: " + reading.previous)
-            }
-            if !caption.translation.isEmpty {
-                Text(caption.translation).font(.system(size: presentation.reading?.fontSize ?? style.translationFontSize)).foregroundStyle(style.translationForeground)
-                    .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
-                    .shadow(color: style.textShadow, radius: 1)
-            }
+            if let reading = presentation.reading {
+                sentenceBlock(reading, color: style.translationForeground, shadow: style.textShadow)
             }
             if !caption.placeholder.isEmpty {
                 Text(caption.placeholder).font(.system(size: min(style.sourceFontSize, style.translationFontSize))).foregroundStyle(style.foreground.opacity(0.65)).fixedSize(horizontal: false, vertical: true)
@@ -178,5 +164,22 @@ struct OverlayCaptionView: View {
         .padding(3)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("字幕パネル")
+    }
+    private func sentenceBlock(_ reading: SentenceCaptionLayout, color: Color, shadow: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(reading.history.enumerated()), id: \.offset) { index, text in
+                Text(text).font(.system(size: reading.previousFontSize))
+                    .foregroundStyle(color.opacity(index == reading.history.count - 1 ? 0.78 : 0.60))
+                    .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+                    .shadow(color: shadow, radius: 1)
+                    .accessibilityLabel("\(reading.history.count - index)文前: " + text)
+            }
+            if !reading.text.isEmpty {
+                Text(reading.text).font(.system(size: reading.fontSize)).foregroundStyle(color)
+                    .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+                    .shadow(color: shadow, radius: 1)
+                    .accessibilityLabel("現在: " + reading.text)
+            }
+        }
     }
 }

@@ -5,8 +5,14 @@ struct SlideAnalysis {
     let blocks: [SlideTextBlock]
     let allTextRects: [CGRect]
     var occupancy: SlideOccupancy
+    var regionCount = 1
+    var regionSources: [SlideRegionSource] {
+        (0..<regionCount).map { index in
+            SlideRegionSource(number: index + 1, text: blocks.filter { $0.regionNumber == index + 1 }.map(\.text).joined(separator: "\n\n"))
+        }
+    }
     var signature: String {
-        blocks.map { "\($0.text)|\(Int($0.rect.minX / 4)),\(Int($0.rect.minY / 4)),\(Int($0.rect.width / 4))" }.joined(separator: "\n")
+        "regions:\(regionCount)\n" + blocks.map { "\($0.regionNumber)|\($0.text)|\(Int($0.rect.minX / 4)),\(Int($0.rect.minY / 4)),\(Int($0.rect.width / 4))" }.joined(separator: "\n")
     }
 }
 
@@ -54,7 +60,7 @@ enum SlideAnalyzer {
             // adjacent column cannot be joined to its text by the OCR engine.
             var selected: [SlideTextBlock] = []
             let pixels = CGRect(x: 0, y: 0, width: image.width, height: image.height)
-            for normalized in regions {
+            for (index, normalized) in regions.enumerated() {
                 let crop = SlideRegionGeometry.absolute(normalized, in: pixels).integral.intersection(pixels)
                 guard !crop.isNull, crop.width > 1, crop.height > 1, let subimage = image.cropping(to: crop) else { continue }
                 let points = CGRect(x: crop.minX / pixels.width * size.width, y: crop.minY / pixels.height * size.height, width: crop.width / pixels.width * size.width, height: crop.height / pixels.height * size.height)
@@ -73,14 +79,14 @@ enum SlideAnalyzer {
                 }
                 let sorted = SlideTextOrdering.ordered(paragraphs(regionLines, language: language), mode: order)
                 for block in sorted {
-                    selected.append(SlideTextBlock(id: selected.count, text: block.text, rect: block.rect))
+                    selected.append(SlideTextBlock(id: selected.count, text: block.text, rect: block.rect, regionNumber: index + 1))
                 }
             }
             blocks = selected
         } else {
             blocks = merged.enumerated().map { SlideTextBlock(id: $0.offset, text: $0.element.0, rect: $0.element.1) }
         }
-        return SlideAnalysis(blocks: blocks, allTextRects: allRects, occupancy: occupancy)
+        return SlideAnalysis(blocks: blocks, allTextRects: allRects, occupancy: occupancy, regionCount: regions?.count ?? 1)
     }
     static func paragraphs(_ lines: [SlideTextBlock], language: CaptionLanguage) -> [SlideTextBlock] {
         let ordered = lines.sorted { $0.rect.minY == $1.rect.minY ? $0.rect.minX < $1.rect.minX : $0.rect.minY < $1.rect.minY }

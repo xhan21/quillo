@@ -3,7 +3,7 @@ import SwiftUI
 import Combine
 
 private struct SlidePage {
-    let blocks: [SlideTextBlock]
+    let regions: [SlideRegionSource]
 }
 
 @MainActor
@@ -17,7 +17,7 @@ final class SlideTranslationModel: ObservableObject {
     let summary = SlideSummaryModel()
     private var summarySubscription: AnyCancellable?
     var panelText: String { summary.text }
-    var panelStatus: String { latestPage?.blocks.isEmpty == false ? summary.status : status }
+    var panelStatus: String { latestPage != nil ? summary.status : status }
     @Published private(set) var panelVisible = false
     @Published var positionLocked = false
     @Published var background = (UserDefaults.standard.data(forKey: "summaryBackground").flatMap { try? JSONDecoder().decode(CaptionRGB.self, from: $0) }) ?? .forest {
@@ -117,7 +117,7 @@ final class SlideTranslationModel: ObservableObject {
     func setGlossary(_ glossary: MaterialGlossary?) { summary.setGlossary(glossary, sourceLanguage: source) }
     private func updateSummary() {
         summary.setSourceLanguage(source)
-        summary.update(source: latestPage?.blocks.map(\.text).joined(separator: "\n\n") ?? "", target: target, active: isRunning)
+        summary.update(regions: latestPage?.regions ?? [], target: target, active: isRunning)
     }
     func showTranslationPanel() {
         if translationPanel == nil { translationPanel = SlideTranslationPanelController(model: self) }
@@ -194,7 +194,7 @@ final class SlideTranslationModel: ObservableObject {
                     self.settleTask = Task { [weak self] in
                         try? await Task.sleep(for: .milliseconds(350))
                         guard !Task.isCancelled, let self, self.generation == version, self.isRunning else { return }
-                        let page = SlidePage(blocks: result.blocks)
+                        let page = SlidePage(regions: result.regionSources)
                         self.latestPage = page
                         self.updateSummary()
 

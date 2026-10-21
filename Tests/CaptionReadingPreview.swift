@@ -50,10 +50,21 @@ import Translation
             model.sendTypedCaption()
             await waitForTranslation()
             let full = model.translatedText, reading = model.captionPresentation.reading
-            let (_, lines) = CaptionViewport.lineBudget(showsSource: false, showsTranslation: true, style: model.appearance, height: model.captionLayoutSize.height)
-            let budget = Double(lines) * CaptionTypesetting.lineHeight(model.appearance.translationFontSize)
+            let budget = model.captionLayoutSize.height - 76
             rows.append(["pair": model.languagePairLabel, "translation": full, "display": reading?.text ?? "", "fontSize": "\(reading?.fontSize ?? 0)",
                          "result": !full.isEmpty && !model.translationUpdating && full == reading?.text && (reading?.height ?? .infinity) <= budget ? "PASS" : "FAIL"])
+        }
+        for language in [CaptionLanguage.english, .chinese, .traditionalChinese] {
+            model.targetLanguage = language; model.setSpeechLanguage(.japanese); model.languageChanged()
+            model.clearCaption()
+            var translations: [String] = []
+            for input in ["入力した情報を処理します。", "結果を画面に表示します。", "次に三つの例を比較します。"] {
+                model.typedText = input; model.sendTypedCaption(); await waitForTranslation()
+                translations.append(model.translatedText)
+            }
+            let reading = model.captionPresentation.reading
+            rows.append(["pair": model.languagePairLabel, "history": reading?.history.joined(separator: " | ") ?? "", "display": reading?.text ?? "",
+                "result": reading?.history == Array(translations.prefix(2)) && reading?.text == translations.last ? "PASS" : "FAIL"])
         }
         let data = try! JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
         try! data.write(to: URL(fileURLWithPath: "/private/tmp/quillo-caption-reading-check.json"), options: .atomic)
@@ -76,9 +87,9 @@ private struct ReadingPreviewView: View {
             Text("翻訳全文：" + model.translatedText).font(.system(size: 13))
             HStack {
                 ForEach([CaptionLanguage.chinese, .traditionalChinese]) { language in
-                    Button(language.name + "の例（2文）") {
+                    Button(language.name + "の例（3文）") {
                         model.targetLanguage = language; model.setSpeechLanguage(.japanese); model.languageChanged()
-                        model.typedText = "この結果は真です。次に、三つの例を比較します。"; model.sendTypedCaption()
+                        model.typedText = "この結果は真です。条件を変えると結果も変わります。次に、三つの例を比較します。"; model.sendTypedCaption()
                     }
                 }
             }

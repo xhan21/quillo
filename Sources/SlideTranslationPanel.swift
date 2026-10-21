@@ -32,6 +32,7 @@ final class SlideTranslationPanelController: NSObject, NSWindowDelegate {
     private var subscription: AnyCancellable?
     private var resizeGrip: CaptionResizeGrip!
     private var hasPosition = false
+    private var minimumHeight: Double { max(160, 94 + Double(model?.regions.count ?? 1) * 72) }
     init(model: SlideTranslationModel) {
         self.model = model
         panel = SummaryPanel(contentRect: CGRect(x: 0, y: 0, width: 520, height: 260), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -79,6 +80,15 @@ final class SlideTranslationPanelController: NSObject, NSWindowDelegate {
     func hide() { panel.orderOut(nil) }
     private func update() {
         guard let model else { return }
+        if let screen = panel.screen ?? NSScreen.main {
+            let bounds = screen.visibleFrame
+            let height = min(minimumHeight, bounds.height - 24)
+            if panel.frame.height < height {
+                var frame = panel.frame; frame.size.height = height
+                frame.origin.y = clamp(frame.minY, bounds.minY, bounds.maxY - height)
+                panel.setFrame(frame, display: true)
+            }
+        }
         presentation.update(text: model.panelText, revision: model.pageRevision, preferred: model.fontSize)
         panel.ignoresMouseEvents = model.positionLocked
         resizeGrip.isHidden = model.positionLocked
@@ -88,7 +98,7 @@ final class SlideTranslationPanelController: NSObject, NSWindowDelegate {
         guard model?.positionLocked == false, let screen = panel.screen ?? NSScreen.main else { return }
         let visible = screen.visibleFrame
         let width = clamp(start.width + delta.width, 320, max(320, visible.width - 24))
-        let height = clamp(start.height - delta.height, 160, max(160, visible.height - 24))
+        let height = clamp(start.height - delta.height, min(minimumHeight, visible.height - 24), max(160, visible.height - 24))
         panel.setFrame(CGRect(x: clamp(start.minX, visible.minX, visible.maxX - width), y: clamp(start.maxY - height, visible.minY, visible.maxY - height), width: width, height: height), display: true)
         saveFrame()
     }

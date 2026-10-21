@@ -4,6 +4,19 @@ struct SlideTextBlock: Identifiable, Equatable {
     let id: Int
     let text: String
     let rect: CGRect // Top-left origin, in captured-content points.
+    var regionNumber: Int = 1
+}
+struct SlideRegionSource: Equatable {
+    let number: Int // Matches the numbered selection rectangle, including empty areas.
+    let text: String
+    func heading(for language: CaptionLanguage) -> String {
+        switch language {
+        case .japanese: return "【範囲\(number)】"
+        case .english: return "【Area \(number)】"
+        case .chinese: return "【区域\(number)】"
+        case .traditionalChinese: return "【區域\(number)】"
+        }
+    }
 }
 struct SlideTranslation: Identifiable, Equatable {
     let id: Int

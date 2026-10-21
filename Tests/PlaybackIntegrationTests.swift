@@ -228,6 +228,17 @@ import AppKit
         precondition(model.visibleCaption.translation.isEmpty && model.captionPresentation.reading == nil)
         model.setCaptionMode(.translationOnly)
         precondition(model.isListening && model.translationSessionID == session && model.translationReady && model.captionPresentation.reading != nil, "Display switches keep standard sentence reading without restarting capture or translation")
+        speech("三つ目の文です。", cue: UUID())
+        try await eventually { translator.calls.count == 1 }
+        let third = language == .english ? "A third sentence." : language.normalizeScript("这是第三句。")
+        translator.complete(third)
+        try await eventually { model.translatedText == third }
+        precondition(model.captionPresentation.reading?.history == [complete, next], "Both prior translations are displayed, not just stored")
+        model.setCaptionMode(nil)
+        precondition(model.captionPresentation.sourceReading?.history == ["条件が真なら結果は偽ではありません。", "次の例"], "Original-only retains two previous spoken phrases")
+        model.setCaptionMode(.bilingual)
+        precondition(model.captionPresentation.reading?.history == [complete, next] && model.captionPresentation.sourceReading?.history.count == 2)
+        precondition(model.isListening && model.translationSessionID == session, "History display switches preserve the live session")
         speech("取り消す内容", cue: UUID())
         try await eventually { translator.calls.count == 1 }
         model.clearCaption(); translator.complete("Must not return.")

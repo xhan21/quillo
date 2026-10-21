@@ -28,6 +28,7 @@ final class AppModel: ObservableObject {
     @Published var positionLocked = false
     @Published var appearance = CaptionAppearance.load() { didSet { appearance.save() } }
     @Published private(set) var sentenceReading = SentenceCaptionReading()
+    @Published private(set) var sourceReading = SentenceCaptionReading()
     @Published var displayMode = CaptionDisplayMode(rawValue: UserDefaults.standard.string(forKey: "captionDisplayMode") ?? "") ?? .bilingual {
         didSet { UserDefaults.standard.set(displayMode.rawValue, forKey: "captionDisplayMode"); updateAppearance() }
     }
@@ -64,24 +65,24 @@ final class AppModel: ObservableObject {
     var visibleCaption: VisibleCaption { captionPresentation.caption }
     var captionPresentation: CaptionPresentation {
         let size = captionLayoutSize
-        let latest = CaptionViewport.latest(source: sourceText, translation: translatedText,
-            showsSource: !requiresTranslation || displayMode == .bilingual, showsTranslation: requiresTranslation,
-            style: appearance, width: size.width, height: size.height)
+        let showsSource = !requiresTranslation || displayMode == .bilingual
+        let budget = max(1, size.height - 76) / (showsSource && requiresTranslation ? 2 : 1)
+        let original = showsSource ? SentenceCaptionLayout.layout(text: sourceText, history: sourceReading.history,
+            fontSize: appearance.sourceFontSize, width: size.width - 60, height: budget, language: sourceLanguage) : nil
         let waiting = liveTranslationFailed ? "翻訳を再準備してください" : nil
         var reading: SentenceCaptionLayout?
         if requiresTranslation && SentenceCaptionLayout.supports(targetLanguage) {
-            let (_, lines) = CaptionViewport.lineBudget(showsSource: displayMode == .bilingual, showsTranslation: true, style: appearance, height: size.height)
             reading = SentenceCaptionLayout.layout(text: sentenceReading.text.isEmpty ? translatedText : sentenceReading.text,
-                previous: sentenceReading.previous, fontSize: appearance.translationFontSize, width: size.width - 60,
-                height: Double(lines) * CaptionTypesetting.lineHeight(appearance.translationFontSize), language: targetLanguage)
+                history: sentenceReading.history, fontSize: appearance.translationFontSize, width: size.width - 60,
+                height: budget, language: targetLanguage)
         }
-        let translation = reading?.text ?? latest.translation
+        let translation = reading?.text ?? ""
         // A retained previous sentence has its own dimmed block. Its header says
         // that the next translation is pending; do not overlap it with a placeholder.
         let placeholder = reading?.previous.isEmpty == false ? "" : waiting ?? (requiresTranslation && !sourceText.isEmpty && translation.isEmpty ? (translationReady ? "翻訳しています…" : "翻訳を準備してください") : nil)
-        let caption = VisibleCaption(source: latest.source, translation: translation, translates: requiresTranslation,
+        let caption = VisibleCaption(source: original?.text ?? "", translation: translation, translates: requiresTranslation,
             mode: displayMode, ready: translationReady, waiting: placeholder)
-        return CaptionPresentation(caption: caption, reading: reading)
+        return CaptionPresentation(caption: caption, reading: reading, sourceReading: original)
     }
     var liveLabel: String {
         if isDemoPlaying { return "ライブ表示のデモ" }
@@ -91,17 +92,22 @@ final class AppModel: ObservableObject {
     }
     var minimumPanelHeight: Double {
         let source = !requiresTranslation || displayMode == .bilingual
-        let total = 76 + (source ? CaptionTypesetting.lineHeight(appearance.sourceFontSize, weight: .medium) : 0)
-            + (requiresTranslation ? CaptionTypesetting.lineHeight(appearance.translationFontSize) : 0)
+        let block = max(source ? SentenceCaptionLayout.minimumHeight(fontSize: appearance.sourceFontSize) : 0,
+                        requiresTranslation ? SentenceCaptionLayout.minimumHeight(fontSize: appearance.translationFontSize) : 0)
+        let total = 76 + block * (source && requiresTranslation ? 2 : 1)
         return max(110, ceil(total / 10) * 10)
     }
     var captionLayoutSize: NSSize {
         let screen = overlay?.panel.screen ?? NSScreen.main
         let visible = screen?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
         let source = !requiresTranslation || displayMode == .bilingual
-        let compact = 76 + (source ? 2 * CaptionTypesetting.lineHeight(appearance.sourceFontSize, weight: .medium) : 0)
-            + (requiresTranslation ? 2 * CaptionTypesetting.lineHeight(appearance.translationFontSize) : 0)
-        let height = appearance.automaticHeight ? compact : appearance.height
+        let width = min(appearance.width, visible.width - 24)
+        let original = source ? SentenceCaptionLayout.preferredHeight(text: sourceText, history: sourceReading.history,
+            fontSize: appearance.sourceFontSize, width: width - 60, language: sourceLanguage) : 0
+        let translated = requiresTranslation ? SentenceCaptionLayout.preferredHeight(text: sentenceReading.text.isEmpty ? translatedText : sentenceReading.text,
+            history: sentenceReading.history, fontSize: appearance.translationFontSize, width: width - 60, language: targetLanguage) : 0
+        let natural = 76 + max(original, translated) * (source && requiresTranslation ? 2 : 1)
+        let height = appearance.automaticHeight ? min(natural, max(minimumPanelHeight, visible.height * 0.6)) : appearance.height
         return NSSize(width: min(appearance.width, visible.width - 24), height: min(visible.height - 24, max(minimumPanelHeight, height)))
     }
 
@@ -149,7 +155,8 @@ final class AppModel: ObservableObject {
     func ensureOverlay() { if !overlayVisible { overlayVisible = true; overlay?.show() } }
     func toggleLock() { positionLocked.toggle(); overlay?.updateInteraction() }
     func updateAppearance() {
-        var bounded = appearance.normalized(); bounded.height = max(bounded.height, minimumPanelHeight)
+        // The effective minimum grows for history, without overwriting saved sizes.
+        let bounded = appearance.normalized()
         if appearance != bounded { appearance = bounded }
         overlay?.refreshSize()
     }
@@ -164,7 +171,7 @@ final class AppModel: ObservableObject {
         }
     }
     private func resetLiveCaption() {
-        readingTask?.cancel(); readingTask = nil; sentenceReading = SentenceCaptionReading(); currentIsFinal = false
+        readingTask?.cancel(); readingTask = nil; sentenceReading = SentenceCaptionReading(); sourceReading = SentenceCaptionReading(); currentIsFinal = false
         contentGeneration += 1; mailbox.removeAll(); revisions.removeAll(); translatedRevisions.removeAll(); submitted.removeAll()
         currentID = nil; sourceText = ""; translatedText = ""; translationUpdating = false; liveTranslationFailed = false
     }
@@ -182,10 +189,13 @@ final class AppModel: ObservableObject {
         let changed = index.map { logs[$0].source != clean } ?? true
         if currentID != id {
             sentenceReading.begin(id, language: targetLanguage, now: ProcessInfo.processInfo.systemUptime); scheduleReadingUpdate()
+            sourceReading.begin(id, language: sourceLanguage, now: ProcessInfo.processInfo.systemUptime)
             currentID = id; translatedText = ""; liveTranslationFailed = false
         }
         currentIsFinal = final
         sourceText = clean; captionKind = kind; mailbox.preferredID = id
+        // Original recognition remains immediate; only translation hypotheses are coalesced.
+        sourceReading.receive(clean, now: ProcessInfo.processInfo.systemUptime, final: true)
         if let index {
             logs[index].source = clean
             if changed { logs[index].translationIncomplete = requiresTranslation }
