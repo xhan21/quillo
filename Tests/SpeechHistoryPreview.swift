@@ -22,8 +22,10 @@ import Translation
     private var failure = ""
     private var callbacks = 0
     private var recognitionIDs: Set<UUID> = []
+    private var rawSnapshots: [String] = []
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.clearCaption(); model.setSpeechLanguage(.japanese); model.targetLanguage = .english; model.languageChanged()
+        model.setCaptionCorrection(false)
         model.historySettings = CaptionHistorySettings(); model.appearance = CaptionAppearance()
         model.setCaptionMode(.bilingual)
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 620), styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -53,7 +55,10 @@ import Translation
                 let final = result?.isFinal ?? false, message = error?.localizedDescription
                 Task { @MainActor in
                     guard let self else { return }
-                    if let snapshot { self.callbacks += 1; self.recognitionIDs.insert(snapshot.segmentID); self.model.speech.onText?(snapshot, final) }
+                    if let snapshot {
+                        self.callbacks += 1; self.recognitionIDs.insert(snapshot.segmentID)
+                        self.rawSnapshots.append(snapshot.text); self.model.speech.onText?(snapshot, final)
+                    }
                     if final { self.finished = true }
                     if let message { self.failure = message; self.finished = true }
                 }
@@ -69,12 +74,17 @@ import Translation
             for _ in 0..<200 where model.logs.contains(where: { $0.translationIncomplete || $0.translation.isEmpty }) { try await Task.sleep(for: .milliseconds(100)) }
         } catch { failure = error.localizedDescription }
         let source = model.logs.map(\.source), translations = model.logs.map(\.translation)
+        let expectedFirst = Bundle.main.url(forResource: "expected-first-word", withExtension: "txt")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) }.map(captionText) ?? ""
+        let openingPreserved = expectedFirst.isEmpty || (rawSnapshots.contains { $0.hasPrefix(expectedFirst) } && source.first?.hasPrefix(expectedFirst) == true)
         let passed = failure.isEmpty && finished && callbacks > 5 && recognitionIDs.count == 1 && source.count >= 3
             && model.captionPresentation.sourceReading?.history.count == 2 && model.captionPresentation.reading?.history.count == 2
             && model.logs.allSatisfy { !$0.translationIncomplete && !$0.translation.isEmpty }
+            && openingPreserved
         let report: [String: Any] = ["passed": passed, "error": failure, "callbacks": callbacks, "recognitionTasks": recognitionIDs.count,
             "source": source, "translations": translations, "sourceHistory": model.sourceReading.history, "translationHistory": model.sentenceReading.history,
-            "currentSource": model.visibleCaption.source, "currentTranslation": model.visibleCaption.translation]
+            "currentSource": model.visibleCaption.source, "currentTranslation": model.visibleCaption.translation,
+            "expectedFirstWord": expectedFirst, "openingWordPreserved": openingPreserved, "rawRecognition": rawSnapshots]
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: "/private/tmp/quillo-speech-history-check.json"), options: .atomic)
         }

@@ -46,7 +46,7 @@
 
 履歴のオン／オフと表示数（1文／2文）は表示だけの設定です。内部の履歴記録は続け、マイク・翻訳セッションを作り直さないでください。発話IDに対応する履歴枠へ遅延翻訳を反映する回帰テストも維持します。
 
-マイクの履歴変更では、句点も新しい認識IDも来ない累積途中結果を必ずテストしてください。`SpeechPhraseTests`と`PlaybackIntegrationTests`で確認します。`zsh Tools/build-speech-history-check.sh`で作る`build/QuilloSpeechHistoryCheck.app`は、架空の合成音声を実Apple Speechへ流し、実Translationと本番の字幕表示へつなげます。マイクを使わず、結果は`/private/tmp/quillo-speech-history-check.json`へ出力します。これは実際の教室音声の精度確認とは別です。
+マイクの履歴変更では、句点も新しい認識IDも来ない累積途中結果を必ずテストしてください。`SpeechPhraseTests`と`PlaybackIntegrationTests`で確認します。`zsh Tools/build-speech-history-check.sh`で作る`build/QuilloSpeechHistoryCheck.app`は、架空の合成音声を実Apple Speechへ流し、実Translationと本番の字幕表示へつなげます。マイクを使わず、結果は`/private/tmp/quillo-speech-history-check.json`へ出力します。`zsh Tools/build-speech-history-check.sh --short-start`は、冒頭の待ち時間を置かず「大丈夫です」から始め、認識原文と字幕の先頭が残るかを確認します。これは実際の教室音声の精度確認とは別です。
 
 英語・中国語訳の読みやすさ表示を変更した場合は`SentenceCaptionReadingTests`と`PlaybackIntegrationTests`を実行します。`zsh Tools/build-reading-check.sh`で作る`build/QuilloReadingCheck.app`は、架空の日本語・英語を実Apple Translationへ渡し、英語・中国語（簡体字／繁体字）の訳の標準表示を確認できます。途中認識を模した入力であり、マイクは使用しません。結果は`/private/tmp/quillo-caption-reading-check.json`です。0.1.13では任意の訳文補正を追加。`CaptionCorrectionTests`で即時表示・確定時のみの補正・履歴・オフ復帰・古い結果の除外を確認し、`build/caption-correction-tests --live`で架空の文章を実モデルに渡して意味と速度を点検します。数字・用語の機械的確認だけで正確さを判断しないでください。
 

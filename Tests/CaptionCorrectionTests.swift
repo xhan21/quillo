@@ -35,25 +35,34 @@ import AppKit
         model.speech.onText?(.init(segmentID: id, text: "結果が正しいとは限りません"), false)
         try await eventually { !model.translatedText.isEmpty }
         precondition(fake.count == 0, "Partial translations must never wait for or call the LLM")
+        precondition(model.currentCorrectionState == .original && model.latestCorrection == nil)
         model.speech.onText?(.init(segmentID: id, text: "結果が正しいとは限りません"), true)
         try await eventually { fake.calls.count == 1 }
+        precondition(model.currentCorrectionState == .checking)
         precondition(model.translatedText == "The result is not always accurate." && model.isListening && model.translationSessionID == session)
         precondition(fake.calls[0].0.previousSource.isEmpty)
         fake.complete("The result is not always correct.")
         try await eventually { model.logs[0].translationCorrected }
+        precondition(model.currentCorrectionState == .corrected)
+        precondition(model.latestCorrection?.translationBeforeCorrection == "The result is not always accurate.")
+        precondition(model.latestCorrection?.translation == "The result is not always correct.")
         precondition(model.sourceText == "結果が正しいとは限りません" && model.sentenceReading.history.isEmpty)
         model.setCaptionCorrection(false)
         precondition(model.translatedText == "The result is not always accurate." && model.isListening && model.translationSessionID == session)
+        precondition(model.currentCorrectionState == .original && model.latestCorrection == nil)
         model.setCaptionCorrection(true)
         try await eventually { fake.calls.count == 1 }
         // A later cue arrives while correction is running: update only its own history.
         let second = UUID()
         model.speech.onText?(.init(segmentID: second, text: "別の結果も確認します"), true)
         try await eventually { model.logs.count == 2 && !model.translationUpdating }
+        precondition(model.currentCorrectionState == .queued)
         fake.complete("The result is not always correct.")
         try await eventually { fake.calls.count == 1 }
         precondition(model.sentenceReading.history == ["The result is not always correct."])
         precondition(model.translatedText == "The result is not always accurate.")
+        precondition(model.currentCorrectionState == .checking, "An older correction must not mark the current caption as corrected")
+        precondition(model.latestCorrection?.id == model.logs[0].id)
         precondition(fake.calls[0].0.previousSource == "結果が正しいとは限りません")
         // Off during a request, even an uncancellable fake cannot reapply it.
         model.setCaptionCorrection(false)
@@ -66,6 +75,13 @@ import AppKit
         fake.fail()
         try await eventually { model.correctionStatus.contains("通常の訳文を表示中") }
         precondition(model.translatedText == "The result is not always accurate." && model.translationReady)
+        precondition(model.currentCorrectionState == .unavailable && model.latestCorrection == nil)
+        // A successful check without a change must not claim AI correction.
+        model.setCaptionCorrection(false); model.setCaptionCorrection(true)
+        try await eventually { fake.calls.count == 1 }
+        fake.complete("The result is not always accurate.")
+        try await eventually { model.currentCorrectionState == .unchanged }
+        precondition(!model.logs.last!.translationCorrected && model.latestCorrection == nil)
         // Bounded backlog: newest pending cue wins, no stale processing queue.
         for n in 0..<5 {
             model.speech.onText?(.init(segmentID: UUID(), text: "確認します\(n)"), true)
@@ -76,10 +92,12 @@ import AppKit
         fake.complete("The result is not always correct.")
         try await eventually { fake.count == before + 1 }
         precondition(fake.calls[0].0.source == "確認します4", "Only newest pending cue should remain")
+        precondition(model.logs.dropLast().allSatisfy { $0.correctionState != .queued && $0.correctionState != .checking })
         // Clear invalidates corrections and preserves the active translation worker.
         model.clearCaption(); fake.complete("This is an obsolete correction.")
         try await Task.sleep(for: .milliseconds(30))
         precondition(model.sourceText.isEmpty && model.translatedText.isEmpty && model.sentenceReading.history.isEmpty)
+        precondition(model.currentCorrectionState == nil && model.latestCorrection == nil)
         // Revision changes must reject the final result for the earlier source.
         model.isListening = true
         let changing = UUID()
@@ -92,7 +110,9 @@ import AppKit
         precondition(!model.logs.last!.translationCorrected)
         // Display changes preserve correction, capture and translation session.
         let liveSession = model.translationSessionID
-        model.setCaptionMode(nil); model.setCaptionMode(.translationOnly); model.setCaptionMode(.bilingual)
+        model.setCaptionMode(nil)
+        precondition(model.currentCorrectionState == nil)
+        model.setCaptionMode(.translationOnly); model.setCaptionMode(.bilingual)
         precondition(model.isListening && model.translationSessionID == liveSession)
         fake.complete("The result is not always correct.")
         try await eventually { model.logs.last!.translationCorrected }
@@ -112,6 +132,7 @@ import AppKit
         fake.complete("An obsolete result.")
         try await Task.sleep(for: .milliseconds(30))
         precondition(model.translatedText.isEmpty)
+        precondition(model.currentCorrectionState == nil)
 
         var reading = SentenceCaptionReading()
         let a = UUID(), b = UUID()

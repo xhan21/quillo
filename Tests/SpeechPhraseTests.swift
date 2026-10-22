@@ -54,6 +54,27 @@ import Foundation
         var english = SpeechPhraseSegmenter()
         _ = english.receive(SpeechSnapshot(segmentID: id, text: "A com"), final: false, now: 0)
         precondition(english.receive(SpeechSnapshot(segmentID: id, text: "A computer"), final: false, now: 2).count == 1, "Do not split a partial English word")
+        for (partial, complete) in [("大", "大丈夫"), ("大丈", "大丈夫です"), ("だい", "だいじょうぶ"),
+                                    ("試作", "試作品"), ("大丈夫", "大丈夫です"), ("大丈夫です", "大丈夫ですか"),
+                                    ("大丈夫じゃ", "大丈夫じゃないです"), ("👩", "👩‍🏫大丈夫です")] {
+            var startup = SpeechPhraseSegmenter()
+            _ = startup.receive(.init(segmentID: id, text: partial), final: false, now: 0)
+            let completeResult = startup.receive(.init(segmentID: id, text: complete), final: false, now: 1.5)
+            precondition(completeResult.count == 1 && completeResult[0].snapshot.text == complete && completeResult[0].snapshot.segmentID == id,
+                         "A delayed opening word/ending must stay complete: \(partial) -> \(complete)")
+            let finalResult = startup.receive(.init(segmentID: id, text: complete), final: true, now: 2)
+            precondition(finalResult.count == 1 && finalResult[0].snapshot.text == complete && finalResult[0].final)
+        }
+        var partialNextWord = SpeechPhraseSegmenter()
+        _ = partialNextWord.receive(.init(segmentID: id, text: "説明が終わりました大"), final: false, now: 0)
+        let wholeNextWord = partialNextWord.receive(.init(segmentID: id, text: "説明が終わりました大丈夫です"), final: false, now: 1.2)
+        precondition(wholeNextWord.count == 2 && wholeNextWord[0].snapshot.text == "説明が終わりました" && wholeNextWord[1].snapshot.text == "大丈夫です",
+                     "Keep the next word's leading character with that word, not in prior history")
+        var timedWord = SpeechPhraseSegmenter()
+        let timedWhole = timedWord.receive(.init(segmentID: id, text: "大丈夫です", words: [
+            SpeechWord(range: NSRange(location: 0, length: 1), timestamp: 0, duration: 0.4),
+            SpeechWord(range: NSRange(location: 1, length: 4), timestamp: 1.4, duration: 1)]), final: false, now: 2)
+        precondition(timedWhole.count == 1 && timedWhole[0].snapshot.text == "大丈夫です", "Even timed ASR segments cannot divide a recognized word")
         // Continuous timed speech advances at a word boundary even without pauses.
         var bounded = SpeechPhraseSegmenter()
         let value = "one two three"

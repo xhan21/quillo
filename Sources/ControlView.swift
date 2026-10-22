@@ -94,6 +94,10 @@ struct ControlView: View {
                 Text("翻訳のみ").tag(CaptionDisplayMode.translationOnly.rawValue)
                 Text("原文 ＋ 翻訳").tag(CaptionDisplayMode.bilingual.rawValue)
             }.pickerStyle(.segmented).labelsHidden()
+            if let state = model.currentCorrectionState {
+                Label("現在の訳：" + state.label, systemImage: state.symbol)
+                    .font(.system(size: 12, weight: .medium))
+            }
             Text(model.status).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if !model.speechLanguageReady {
                 Text("\(model.speechLanguage.dictationName)の端末内音声認識を利用できません。Macの「システム設定 → キーボード → 音声入力 → 言語」を確認してください。文字入力・資料要約は使えます。")
@@ -140,7 +144,26 @@ struct ControlView: View {
             Text("通常の訳をすぐ表示し、話の区切りで読みやすく補正します。原文は変えません。Mac内の要約用AIを使い、遅いときは通常の訳を残します。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if model.captionCorrectionEnabled {
-                Text(model.correctionStatus).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if let state = model.currentCorrectionState {
+                    Label("現在の訳：" + state.label, systemImage: state.symbol).font(.system(size: 12, weight: .semibold))
+                    Text(state.detail).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(model.correctionStatus).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                DisclosureGroup("補正前後を確認") {
+                    if let line = model.latestCorrection, let before = line.translationBeforeCorrection {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("直近に補正した訳").fontWeight(.semibold)
+                            Text("原文：" + line.source)
+                            Text("補正前：" + before).foregroundStyle(.secondary)
+                            Text("補正後：" + line.translation)
+                        }.font(.system(size: 12)).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true).padding(.top, 8)
+                    } else {
+                        Text("AIで変更した訳はまだありません。補正が採用されると、ここに表示します。")
+                            .font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, 8)
+                    }
+                }.font(.system(size: 12))
             }
             Divider()
             HStack(spacing: 24) {
@@ -188,6 +211,7 @@ struct ControlView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(line.source).font(.system(size: 11)).lineLimit(2)
                     if !line.translation.isEmpty { Text(line.translation).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2) }
+                    if line.translationCorrected { Label("AI補正済み", systemImage: "checkmark.seal.fill").font(.system(size: 10)) }
                     if line.translationIncomplete { Text("翻訳未完了・途中の結果").font(.system(size: 9)).foregroundStyle(.secondary) }
                 }
             }

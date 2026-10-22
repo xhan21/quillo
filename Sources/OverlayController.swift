@@ -136,6 +136,16 @@ struct OverlayCaptionView: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 7) {
                 Circle().fill(model.isListening ? Color.red.opacity(0.9) : style.translationForeground).frame(width: 5, height: 5)
+                if let state = model.currentCorrectionState {
+                    Label(state.label, systemImage: state.symbol)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(style.foreground)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(style.foreground.opacity(0.10), in: Capsule())
+                        .overlay(Capsule().strokeBorder(style.foreground.opacity(0.25)))
+                        .fixedSize().layoutPriority(1)
+                        .accessibilityLabel("現在の訳: " + state.label)
+                }
                 Text(model.captionKind).font(.system(size: 10, weight: .medium))
                 Spacer()
                 Text(presentation.reading?.continued == true || presentation.sourceReading?.continued == true ? "長文の続き" : model.liveLabel)

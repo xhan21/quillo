@@ -108,10 +108,35 @@ import AppKit
         precondition(model.sourceText == long && model.logs.last?.source == long)
         precondition(long.hasSuffix(model.visibleCaption.source) && model.visibleCaption.source.hasSuffix("最後です。"))
         model.shutdown()
+        try await openingWord()
         try await continuousMicrophoneHistory()
         try await modeSwitching()
         for language in [CaptionLanguage.english, .chinese, .traditionalChinese] { try await sentenceReadingMode(language) }
         print("PASS: synchronous original update (\(updateTime)), partial translation progress, coalescing, no duplicated finals, no stale overwrite, live priority + final logs, errors recover, clear cancels, full logs, one translation in flight")
+    }
+
+    @MainActor static func openingWord() async throws {
+        let model = AppModel(glossary: GlossaryStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
+        let savedMode = model.displayMode
+        defer { model.displayMode = savedMode; model.shutdown() }
+        model.clearCaption(); model.setCaptionMode(.bilingual); model.isListening = true; model.isStartingMic = true
+        let translator = ControlledTranslator(), id = UUID(), session = model.translationSessionID
+        let worker = Task { await model.runTranslationWorker(prepare: {}, translate: { try await translator.translate($0) }) }
+        model.speech.onText?(.init(segmentID: id, text: "大", words: [.init(range: NSRange(location: 0, length: 1), timestamp: 0, duration: 0.011)]), false)
+        try await eventually { translator.calls.count == 1 }
+        // Reproduce the initial delayed callback that previously split 大|丈夫.
+        try await Task.sleep(for: .milliseconds(950))
+        model.speech.onText?(.init(segmentID: id, text: "大丈夫です", words: [.init(range: NSRange(location: 0, length: 5), timestamp: 0, duration: 0.011)]), true)
+        precondition(model.sourceText == "大丈夫です" && model.sourceReading.history.isEmpty && model.logs.map(\.source) == ["大丈夫です"])
+        precondition(model.isListening && model.translationSessionID == session)
+        translator.complete("Large")
+        try await eventually { translator.calls.count == 1 }
+        precondition(translator.calls[0].text == "大丈夫です", "The translator must receive the whole word, not 丈夫")
+        translator.complete("It's okay.")
+        try await eventually { model.translatedText == "It's okay." }
+        precondition(model.sentenceReading.history.isEmpty && model.logs.count == 1)
+        model.clearCaption(); worker.cancel(); await worker.value
+        print("PASS: delayed startup 大 -> 大丈夫です retains the full word in original, translation and history")
     }
 
     @MainActor static func continuousMicrophoneHistory() async throws {

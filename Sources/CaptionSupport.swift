@@ -59,6 +59,37 @@ struct SampleCaption {
     ]
 }
 
+enum CaptionCorrectionState: Equatable {
+    case original, queued, checking, corrected, unchanged, unavailable
+    var label: String {
+        switch self {
+        case .original, .unavailable: return "通常訳"
+        case .queued: return "補正待ち"
+        case .checking: return "AI補正中"
+        case .corrected: return "AI補正済み"
+        case .unchanged: return "AI確認・変更なし"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .original, .unavailable: return "text.alignleft"
+        case .queued, .checking: return "clock"
+        case .corrected: return "checkmark.seal.fill"
+        case .unchanged: return "checkmark.circle"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .original: return "通常の翻訳を表示しています。"
+        case .queued: return "通常の訳を表示しながら、AIの順番を待っています。"
+        case .checking: return "通常の訳を表示しながら、AIが補正しています。"
+        case .corrected: return "AIで変更した訳を表示しています。補正前後は下で確認できます。"
+        case .unchanged: return "AIが確認しましたが、訳文は変更していません。"
+        case .unavailable: return "補正を採用できなかったため、通常の訳を表示しています。"
+        }
+    }
+}
+
 struct TranscriptLine: Identifiable {
     let id: UUID
     let time: Date
@@ -66,7 +97,12 @@ struct TranscriptLine: Identifiable {
     var translation: String
     let kind: String
     var translationIncomplete = false
-    var translationCorrected = false
+    var correctionState: CaptionCorrectionState = .original
+    var translationBeforeCorrection: String?
+    var translationCorrected: Bool {
+        get { correctionState == .corrected }
+        set { correctionState = newValue ? .corrected : .original }
+    }
 }
 
 struct TranslationJob: Sendable, Equatable {
