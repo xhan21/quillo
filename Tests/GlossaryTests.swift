@@ -70,6 +70,27 @@ import AppKit
         let common = try MaterialGlossary.decode(JSONEncoder().encode(CommonVocabulary.glossary))
         precondition(common.entries.count == 25 && CommonVocabulary.conversation.count == 12)
         precondition(store.selected == nil && store.effective == common)
+        // Reproduce the owner's exact ASR result: the original exact-match path
+        // provides no terms, so the short-input guard rejects the desired repair.
+        precondition(store.effective.summaryTerms(in: "怖い色", language: .japanese, target: .japanese).isEmpty)
+        precondition((try? LocalCaptionCorrector.validate("声色", for: .init(source: "怖い色", language: .japanese))) == nil)
+        for raw in ["怖い色", "怖い色。", " 怖い色！ "] {
+            let terms = store.correctionTerms(in: raw, language: .japanese, previousSource: "")
+            precondition(terms.contains("声色"))
+            precondition((try? LocalCaptionCorrector.validate("声色", for: .init(source: raw, language: .japanese, terminology: terms))) == "声色")
+            precondition((try? LocalCaptionCorrector.validate("声色です。", for: .init(source: raw, language: .japanese, terminology: terms))) == nil,
+                         "Do not accept an invented copula while repairing an isolated word")
+        }
+        for raw in ["怖い色を使います。", "怖い色とは何ですか。", "赤は怖い色です。", "怖い", "色", "丈夫"] {
+            precondition(store.correctionTerms(in: raw, language: .japanese, previousSource: "").isEmpty)
+            let candidate = raw.replacingOccurrences(of: "怖い色", with: "声色")
+            if candidate != raw {
+                precondition((try? LocalCaptionCorrector.validate(candidate, for: .init(source: raw, language: .japanese))) == nil)
+            }
+        }
+        precondition(store.correctionTerms(in: "怖い色", language: .japanese, previousSource: "絵に使う色を選びます。").isEmpty)
+        precondition(store.correctionTerms(in: "怖い色", language: .english, previousSource: "").isEmpty)
+        precondition(!GlossaryTranslation(source: "怖い色", language: .japanese, target: .english, glossary: store.translationGlossary).hasTerms)
         for phrase in ["声色", "こわいろ", "ローカルLLM", "大丈夫です", "なるほど"] {
             precondition(store.recognitionPhrases(.japanese).contains(phrase))
         }
@@ -87,6 +108,13 @@ import AppKit
         precondition((try? LocalCaptionCorrector.validate("声色とローカルLLM", for: correction)) == "声色とローカルLLM")
         precondition((try? LocalCaptionCorrector.validate("声色とローカル LLM", for: correction)) == "声色とローカル LLM")
         precondition((try? LocalCaptionCorrector.validate("声色とクラウドLLM", for: correction)) == nil)
+        let colourCourse = MaterialGlossary(id: "colour-course", name: "Colour", entries: [
+            .init(terms: ["ja": "怖い色", "en": "scary colour"])])
+        try JSONEncoder().encode(colourCourse).write(to: file); try store.importFile(file)
+        let colourTerms = store.correctionTerms(in: "怖い色", language: .japanese, previousSource: "")
+        precondition(!colourTerms.contains("声色") && colourTerms.contains("怖い色"))
+        precondition((try? LocalCaptionCorrector.validate("声色", for: .init(source: "怖い色", language: .japanese, terminology: colourTerms))) == nil)
+        store.select("test")
         let preferred = MaterialGlossary(id: "voice-course", name: "Voice", entries: [
             .init(terms: ["ja": "声色", "en": "vocal expression"], aliases: ["ja": ["こわいろ"]])])
         let merged = MaterialGlossary.combining(common: common, course: preferred)
@@ -126,6 +154,25 @@ import AppKit
         precondition(model.speech.contextualPhrases.contains("命題"))
         model.shutdown(); worker.cancel(); await worker.value
         print("PASS: always-on common vocabulary, course precedence, shared recognition budget, reading-to-term correction, four-language matching, storage/restart, stale caption exclusion and session preservation")
+        if CommandLine.arguments.contains("--live-homophone") {
+            let service = LocalCaptionCorrector()
+            await service.warmUp()
+            for (raw, previous, expected) in [("怖い色", "", "声色"), ("怖い色。", "", "声色。"),
+                ("怖い色を使います。", "", "怖い色を使います。"), ("怖い色", "絵に使う色を選びます。", "怖い色")] {
+                let terms = store.correctionTerms(in: raw, language: .japanese, previousSource: previous)
+                let input = CaptionCorrectionRequest(source: raw, language: .japanese, previousSource: previous, terminology: terms)
+                let start = Date()
+                do {
+                    let result = try await service.correct(input)
+                    print("LIVE HOMOPHONE: \(raw) -> \(result) (\(Date().timeIntervalSince(start)) seconds; previous: \(previous))")
+                    precondition(result == expected)
+                } catch CaptionCorrectionError.invalidResult where expected == raw {
+                    // The app retains the original on rejected candidates. Count
+                    // that separately from the model itself leaving it unchanged.
+                    print("LIVE HOMOPHONE GUARDED: retained \(raw); candidate rejected (previous: \(previous))")
+                }
+            }
+        }
         if CommandLine.arguments.contains("--live") {
             let correctionService = LocalCaptionCorrector()
             for text in ["こわいろを変えて説明します。", "ローカルエルエルエムを使います。"] {

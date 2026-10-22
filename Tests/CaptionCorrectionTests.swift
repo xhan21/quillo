@@ -37,8 +37,44 @@ import AppKit
     @MainActor static func main() async throws {
         setbuf(stdout, nil); _ = NSApplication.shared
         if CommandLine.arguments.contains("--live") { try await live(); return }
-        try await flow(); try await stablePartials(); try await staleTranslations(); validation()
+        try await flow(); try await stablePartials(); try await isolatedHomophone(); try await staleTranslations(); validation()
         print("CaptionCorrectionTests passed: stable partial repair, contextual character restoration, immediate input, translation and history replacement, restoration, stale result rejection, bounded queue")
+    }
+    @MainActor static func isolatedHomophone() async throws {
+        let fake = ControlledCorrection(), app = makeModel(fake)
+        defer { app.setCaptionCorrection(false); app.shutdown() }
+        app.isListening = true
+        app.targetLanguage = .english; app.languageChanged(); app.isListening = true
+        app.setCaptionMode(.bilingual)
+        let session = app.translationSessionID, id = UUID()
+        let worker = Task { await app.runTranslationWorker(prepare: {}, translate: { "RAW: " + $0 }) }
+        defer { worker.cancel() }
+        try await eventually { app.translationReady }
+        app.speech.onText?(.init(segmentID: id, text: "怖い色"), false)
+        precondition(app.sourceText == "怖い色")
+        try await eventually { fake.calls.count == 1 }
+        precondition(fake.calls[0].0.terminology.contains("声色") && fake.calls[0].0.previousSource.isEmpty)
+        fake.complete("声色")
+        try await eventually { app.sourceText == "声色" && app.translatedText == "tone of voice" }
+        precondition(app.logs.count == 1 && app.latestCorrection?.sourceBeforeCorrection == "怖い色")
+        precondition(app.isListening && app.translationSessionID == session)
+        app.speech.onText?(.init(segmentID: id, text: "怖い色"), false)
+        precondition(app.sourceText == "声色", "Repeated ASR results must not undo a repair")
+        app.speech.onText?(.init(segmentID: id, text: "怖い色を使います"), false)
+        precondition(app.sourceText == "怖い色を使います")
+        try await eventually { fake.calls.count == 1 }
+        precondition(fake.calls[0].0.terminology.isEmpty)
+        fake.complete("声色を使います")
+        try await eventually { app.currentCorrectionState == .unavailable }
+        precondition(app.sourceText == "怖い色を使います" && app.logs.count == 1)
+        app.clearCaption()
+        app.isListening = true
+        app.speech.onText?(.init(segmentID: UUID(), text: "怖い色"), true)
+        try await eventually { fake.calls.count == 1 }
+        fake.complete("声色")
+        try await eventually { app.sourceText == "声色" }
+        app.setCaptionCorrection(false)
+        try await eventually { app.sourceText == "怖い色" && app.translatedText == "RAW: 怖い色" }
     }
     @MainActor static func stablePartials() async throws {
         let fake = ControlledCorrection(), app = makeModel(fake)

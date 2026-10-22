@@ -3,6 +3,10 @@ import Foundation
 // Hand-authored, generic vocabulary. Never include personal course material here.
 // Conversation phrases are recognition hints, not forced translations or ASR replacements.
 enum CommonVocabulary {
+    // Reported by the owner when saying こわいろ alone. This is an input-only
+    // preference for an isolated, context-free word, NEVER a general alias:
+    // 怖い色 is also valid Japanese in a sentence about colours.
+    static let isolatedInputSpellings = ["怖い色": "声色"]
     static let conversation: [String] = [
         "大丈夫です", "なるほど", "たとえば", "つまり", "ちなみに", "そうですね",
         "わかりました", "もう一度お願いします", "少し待ってください", "ありがとうございます",

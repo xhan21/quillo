@@ -46,6 +46,8 @@
 
 ## 言語の動作確認
 
+0.1.18の単独語補正は`GlossaryStore.correctionTerms`で入力全体・言語・前文・授業別の一致を確認して渡します。誤認識された一般語を共通辞書の通常の別名に追加しないでください。`GlossaryTests`と`CaptionCorrectionTests`は「怖い色→声色」、色についての文章の保持、途中で入力が伸びた場合、オフ復帰と再翻訳を確認します。`build/glossary-tests --live-homophone`は、実ローカルAIで単独語2例と色の意味を保持する2例を確認します。これも文字列による確認で、実マイクでの認識精度評価ではありません。
+
 履歴のオン／オフと表示数（1文／2文）は表示だけの設定です。内部の履歴記録は続け、マイク・翻訳セッションを作り直さないでください。発話IDに対応する履歴枠へ遅延翻訳を反映する回帰テストも維持します。
 
 マイクの履歴変更では、句点も新しい認識IDも来ない累積途中結果を必ずテストしてください。`SpeechPhraseTests`と`PlaybackIntegrationTests`で確認します。`zsh Tools/build-speech-history-check.sh`で作る`build/QuilloSpeechHistoryCheck.app`は、架空の合成音声を実Apple Speechへ流し、実Translationと本番の字幕表示へつなげます。マイクを使わず、結果は`/private/tmp/quillo-speech-history-check.json`へ出力します。`zsh Tools/build-speech-history-check.sh --short-start`は、冒頭の待ち時間を置かず「大丈夫です」から始め、認識原文と字幕の先頭が残るかを確認します。これは実際の教室音声の精度確認とは別です。

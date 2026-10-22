@@ -14,6 +14,19 @@ final class GlossaryStore: ObservableObject {
     let common = CommonVocabulary.glossary
     var effective: MaterialGlossary { .combining(common: common, course: selected) }
     var translationGlossary: MaterialGlossary { .combining(common: CommonVocabulary.translationGlossary, course: selected) }
+    func correctionTerms(in source: String, language: CaptionLanguage, previousSource: String) -> String {
+        let combined = effective
+        let matched = combined.summaryTerms(in: source, language: language, target: language)
+        // Explicit course mappings take precedence. Only the reported standalone
+        // confusion gets this fallback; do not bias longer text or colour context.
+        guard matched.isEmpty, language == .japanese,
+              previousSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return matched }
+        let word = source.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "。．.!！?？")))
+        guard let preferred = CommonVocabulary.isolatedInputSpellings[word],
+              combined.entries.contains(where: { $0.term(language) == preferred }),
+              let data = try? JSONSerialization.data(withJSONObject: [["source": word, "preferred": preferred]], options: [.sortedKeys]) else { return matched }
+        return String(decoding: data, as: UTF8.self)
+    }
     func recognitionPhrases(_ language: CaptionLanguage) -> [String] {
         let combined = effective
         let course = selected?.recognitionPhrases(language) ?? []

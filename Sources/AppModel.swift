@@ -550,7 +550,7 @@ final class AppModel: ObservableObject {
         let job = TranslationJob(cueID: id, revision: revision, generation: contentGeneration, text: raw)
         let previous = index > 0 && rawSources[logs[index - 1].id] != nil ? logs[index - 1].source : ""
         let input = CaptionCorrectionRequest(source: raw, language: sourceLanguage, previousSource: previous,
-            terminology: glossary.effective.summaryTerms(in: raw, language: sourceLanguage, target: sourceLanguage))
+            terminology: glossary.correctionTerms(in: raw, language: sourceLanguage, previousSource: previous))
         if let pendingCorrection, let pendingIndex = logs.firstIndex(where: { $0.id == pendingCorrection.job.cueID }), pendingIndex > index { return }
         if let old = pendingCorrection { setCorrectionState(.original, for: old.job) }
         pendingCorrection = (job, input); setCorrectionState(.queued, for: job)

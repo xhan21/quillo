@@ -14,6 +14,7 @@ Quillo (クイロ) is a native macOS teaching accessibility prototype, previousl
 - Do not send audio, screen images, recognized text, or logs to cloud services as an implementation shortcut. The model service is fixed to loopback and rejects cloud models.
 - CommonVocabulary.swift contains hand-authored public vocabulary, always combined with the selected course. Common conversation phrases are recognition hints only; never turn 丈夫 into a forced alias of 大丈夫. Course entries override conflicting shared entries. Only the explicit common translation subset fixes caption terminology; ordinary conversation translations remain contextual. Reserve common recognition hints within the 100-phrase cap, preserve input-matched glossary normalization in correction validation, and keep shared vocabulary tests.
 - Per-material glossaries are local user data. Keep them outside the public repository and app bundle. Preserve the selected glossary and include it in recognition hints, caption term protection, and summary context. See docs/GLOSSARIES.md.
+- The reported isolated 怖い色 -> 声色 preference is input-correction-only, Japanese-only, and requires no previous caption context. Keep it out of global glossary aliases and translations. Respect explicit course mappings, reject unscoped replacements inside colour sentences, and restore the raw source when the ongoing utterance grows or input correction is disabled.
 
 ## Implementation and release
 
