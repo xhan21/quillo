@@ -66,6 +66,7 @@ struct TranscriptLine: Identifiable {
     var translation: String
     let kind: String
     var translationIncomplete = false
+    var translationCorrected = false
 }
 
 struct TranslationJob: Sendable, Equatable {

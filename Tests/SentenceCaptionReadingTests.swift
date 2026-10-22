@@ -157,6 +157,16 @@ import AppKit
         pending.receive("Pending revision", now: 0.1)
         pending.begin(UUID(), now: 0.2)
         precondition(pending.history == ["Actually displayed"], "Archive what students saw, not an undisplayed hypothesis")
+        var unchanged = SentenceCaptionReading()
+        let unchangedID = UUID()
+        unchanged.begin(unchangedID, now: 0)
+        unchanged.receive("An earlier sentence.", now: 0, final: true, sourcePosition: 0)
+        unchanged.receive("The current sentence.", now: 1, final: true, sourcePosition: 1)
+        unchanged.replace("The current sentence.", cueID: unchangedID, now: 2)
+        precondition(unchanged.history == ["An earlier sentence."], "An unchanged proofreading result must not erase displayed history")
+        unchanged.begin(UUID(), now: 3)
+        unchanged.replace("The current sentence.", cueID: unchangedID, now: 4)
+        precondition(unchanged.history == ["An earlier sentence.", "The current sentence."], "Unchanged retired corrections preserve both earlier sentences")
         print("PASS: four-language current plus two-sentence history, persistent context, revision replacement, repeated phrases, fitting bounds, punctuation, Unicode and bounded partial updates")
     }
 }

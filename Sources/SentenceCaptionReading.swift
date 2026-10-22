@@ -71,6 +71,20 @@ struct SentenceCaptionReading {
             lastDisplay = now; self.pending = nil
         }
     }
+    // A proofreading result replaces this cue in place. Re-punctuation is not
+    // a new utterance and must not archive the uncorrected version as history.
+    mutating func replace(_ value: String, cueID: UUID, now: Double) {
+        let parts = SentenceCaptionLayout.sentences(value, language: language)
+        guard let last = parts.last else { return }
+        if active?.id == cueID {
+            guard active?.text != value else { return }
+            active?.text = value; active?.current = last; active?.completed = Array(parts.dropLast().suffix(2))
+            pending = nil; lastDisplay = now
+        } else if let index = retired.firstIndex(where: { $0.id == cueID }) {
+            guard retired[index].text != value else { return }
+            retired[index].text = value; retired[index].current = last; retired[index].completed = Array(parts.dropLast().suffix(2))
+        }
+    }
     mutating func tick(now: Double) {
         if now - lastDisplay >= Self.updateInterval { flush(now: now) }
     }

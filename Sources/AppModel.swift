@@ -28,6 +28,8 @@ final class AppModel: ObservableObject {
     @Published var positionLocked = false
     @Published var appearance = CaptionAppearance.load() { didSet { appearance.save() } }
     @Published var historySettings = CaptionHistorySettings.load() { didSet { historySettings.save(); updateAppearance() } }
+    @Published private(set) var captionCorrectionEnabled = UserDefaults.standard.bool(forKey: "captionCorrection.v1")
+    @Published private(set) var correctionStatus = "オフ · 通常の翻訳を表示します。"
     var historyLabel: String { historySettings.visibleCount == 0 ? "現在の一文" : "現在 ＋ 前の\(historySettings.visibleCount)文" }
     private var currentSourceSentence: String { sourceReading.text.isEmpty ? sourceText : sourceReading.currentText }
     private var currentTranslatedSentence: String { sentenceReading.text.isEmpty ? translatedText : sentenceReading.currentText }
@@ -62,6 +64,13 @@ final class AppModel: ObservableObject {
     private var revisions: [UUID: Int] = [:]
     private var translatedRevisions: [UUID: Int] = [:]
     private var submitted: [UUID: TranslationJob] = [:]
+    private let correctTranslation: (CaptionCorrectionRequest) async throws -> String
+    private var correctionTask: Task<Void, Never>?
+    private var correctionEpoch = 0
+    private var pendingCorrection: (job: TranslationJob, input: CaptionCorrectionRequest)?
+    private var correctionAttempts: [UUID: Int] = [:]
+    private var finalRevisions: [UUID: Int] = [:]
+    private var baseTranslations: [UUID: (job: TranslationJob, text: String)] = [:]
     // Internal read-only diagnostics used by the integration tests.
     var pendingTranslationCount: Int { mailbox.count }
     var requiresTranslation: Bool { translationEnabled && sourceLanguage != targetLanguage }
@@ -93,7 +102,8 @@ final class AppModel: ObservableObject {
         if isDemoPlaying { return "ライブ表示のデモ" }
         if requiresTranslation && liveTranslationFailed { return "翻訳を再準備" }
         if translationUpdating { return translationReady ? "翻訳を更新中…" : "翻訳を準備中…" }
-        return isListening ? "ライブ更新" : "ライブ字幕"
+        let label = isListening ? "ライブ更新" : "ライブ字幕"
+        return label + (requiresTranslation && logs.last(where: { $0.id == currentID })?.translationCorrected == true ? " · AI補正" : "")
     }
     var minimumPanelHeight: Double {
         let source = !requiresTranslation || displayMode == .bilingual
@@ -116,7 +126,9 @@ final class AppModel: ObservableObject {
         return NSSize(width: min(appearance.width, visible.width - 24), height: min(visible.height - 24, max(minimumPanelHeight, height)))
     }
 
-    init(glossary: GlossaryStore? = nil) {
+    init(glossary: GlossaryStore? = nil, corrector: ((CaptionCorrectionRequest) async throws -> String)? = nil) {
+        let client = LocalCaptionCorrector()
+        correctTranslation = corrector ?? { try await client.correct($0) }
         self.glossary = glossary ?? GlossaryStore()
         self.glossary.onChange = { [weak self] in self?.glossaryChanged() }
         speech.contextualPhrases = self.glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
@@ -126,6 +138,7 @@ final class AppModel: ObservableObject {
         speech.onStarted = { [weak self] in self?.isStartingMic = false }
         speech.onStopped = { [weak self] in self?.isListening = false; self?.isStartingMic = false }
         showSample()
+        if captionCorrectionEnabled { correctionStatus = "オン · 話の区切りで訳文を補正します。" }
         refreshSpeechReadiness()
     }
     func refreshSpeechReadiness() {
@@ -143,6 +156,7 @@ final class AppModel: ObservableObject {
         languageChanged()
     }
     private func glossaryChanged() {
+        resetCorrections()
         readingTask?.cancel(); readingTask = nil; sentenceReading = SentenceCaptionReading()
         if let currentID { sentenceReading.begin(currentID, language: targetLanguage, now: ProcessInfo.processInfo.systemUptime) }
         speech.contextualPhrases = glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
@@ -153,6 +167,7 @@ final class AppModel: ObservableObject {
         revisions.removeAll(); translatedRevisions.removeAll()
         guard let id = currentID else { return }
         revisions[id] = 1; translationUpdating = requiresTranslation
+        if currentIsFinal { finalRevisions[id] = 1 }
         if let index = logs.firstIndex(where: { $0.id == id }) { logs[index].translationIncomplete = requiresTranslation }
         if requiresTranslation { submitTranslation(id: id, text: sourceText) }
     }
@@ -182,6 +197,7 @@ final class AppModel: ObservableObject {
         }
     }
     private func resetLiveCaption() {
+        resetCorrections()
         readingTask?.cancel(); readingTask = nil; sentenceReading = SentenceCaptionReading(); sourceReading = SentenceCaptionReading(); speechPhrases = SpeechPhraseSegmenter(); currentIsFinal = false
         contentGeneration += 1; mailbox.removeAll(); revisions.removeAll(); translatedRevisions.removeAll(); submitted.removeAll()
         currentID = nil; sourceText = ""; translatedText = ""; translationUpdating = false; liveTranslationFailed = false
@@ -213,11 +229,17 @@ final class AppModel: ObservableObject {
         } else {
             logs.append(TranscriptLine(id: id, time: Date(), source: clean, translation: "", kind: kind == "文字入力" ? "入力" : "音声", translationIncomplete: requiresTranslation))
         }
-        if changed { revisions[id, default: 0] += 1; liveTranslationFailed = false }
+        if changed {
+            revisions[id, default: 0] += 1; liveTranslationFailed = false
+            finalRevisions[id] = nil
+            if let index { logs[index].translationCorrected = false }
+        }
+        if final { finalRevisions[id] = revisions[id] }
         translationUpdating = requiresTranslation && translatedRevisions[id] != revisions[id]
         if requiresTranslation { submitTranslation(id: id, text: clean) }
         if final && translatedRevisions[id] == revisions[id] {
             sentenceReading.flush(now: ProcessInfo.processInfo.systemUptime); scheduleReadingUpdate()
+            requestCorrection(id)
         }
     }
     private func handleSpeech(_ snapshot: SpeechSnapshot, final: Bool) {
@@ -255,6 +277,7 @@ final class AppModel: ObservableObject {
             if let index = logs.firstIndex(where: { $0.id == id }) { logs[index].translationIncomplete = true }
             submitTranslation(id: id, text: sourceText)
         }
+        if let currentID { requestCorrection(currentID) }
         // Original-only may have started before a session existed. Resume from
         // the current text even if the speaker has already stopped talking.
         if !translationReady || liveTranslationFailed { prepareTranslation() }
@@ -377,15 +400,99 @@ final class AppModel: ObservableObject {
         translatedRevisions[job.cueID] = job.revision
         let incomplete = revisions[job.cueID] != job.revision
         if let index = logs.firstIndex(where: { $0.id == job.cueID }) {
-            logs[index].translation = text; logs[index].translationIncomplete = incomplete
+            logs[index].translation = text; logs[index].translationIncomplete = incomplete; logs[index].translationCorrected = false
         }
+        baseTranslations[job.cueID] = (job, text)
         // Late results correct their own history slot, never the current caption.
         sentenceReading.receive(text, now: ProcessInfo.processInfo.systemUptime,
             final: currentIsFinal && !incomplete, cueID: job.cueID,
             sourcePosition: max(0, SentenceCaptionLayout.sentences(job.text, language: sourceLanguage).count - 1))
+        requestCorrection(job.cueID)
         guard currentID == job.cueID else { return }
         translatedText = text; translationUpdating = requiresTranslation && incomplete; liveTranslationFailed = false
         scheduleReadingUpdate()
+    }
+
+    func setCaptionCorrection(_ enabled: Bool) {
+        guard captionCorrectionEnabled != enabled else { return }
+        captionCorrectionEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "captionCorrection.v1")
+        correctionEpoch += 1; correctionTask?.cancel(); correctionTask = nil; pendingCorrection = nil; correctionAttempts = [:]
+        correctionStatus = enabled ? "オン · 話の区切りで訳文を補正します。" : "オフ · 通常の翻訳を表示します。"
+        if enabled {
+            if let currentID { requestCorrection(currentID) }
+        } else {
+            // Retain capture/session/history identity. Restore base translations
+            // without adding their corrected versions as extra history entries.
+            for index in logs.indices where logs[index].translationCorrected {
+                let id = logs[index].id
+                guard let base = baseTranslations[id], base.job.generation == contentGeneration else { continue }
+                logs[index].translation = base.text; logs[index].translationCorrected = false
+                sentenceReading.replace(base.text, cueID: id, now: ProcessInfo.processInfo.systemUptime)
+                if id == currentID { translatedText = base.text }
+            }
+            scheduleReadingUpdate()
+        }
+    }
+    private func resetCorrections() {
+        correctionEpoch += 1; correctionTask?.cancel(); correctionTask = nil; pendingCorrection = nil
+        correctionAttempts = [:]; finalRevisions = [:]; baseTranslations = [:]
+        correctionStatus = captionCorrectionEnabled ? "オン · 話の区切りで訳文を補正します。" : "オフ · 通常の翻訳を表示します。"
+    }
+    private func requestCorrection(_ id: UUID) {
+        guard captionCorrectionEnabled, requiresTranslation, !convertsChineseScript,
+              let base = baseTranslations[id], base.job.generation == contentGeneration,
+              base.job.revision == revisions[id], finalRevisions[id] == base.job.revision,
+              correctionAttempts[id] != base.job.revision,
+              let index = logs.firstIndex(where: { $0.id == id }), index >= logs.count - 3 else { return }
+        correctionAttempts[id] = base.job.revision
+        let previous = index > 0 && baseTranslations[logs[index - 1].id] != nil ? logs[index - 1] : nil
+        let input = CaptionCorrectionRequest(source: base.job.text, translation: base.text, sourceLanguage: sourceLanguage,
+            target: targetLanguage, previousSource: previous?.source ?? "", previousTranslation: previous?.translation ?? "",
+            terminology: glossary.selected?.summaryTerms(in: base.job.text, language: sourceLanguage, target: targetLanguage) ?? "")
+        // One active request plus one newest pending cue. A late old translation
+        // cannot displace a newer pending cue, even when arrivals are reordered.
+        if let pendingCorrection, let pendingIndex = logs.firstIndex(where: { $0.id == pendingCorrection.job.cueID }), pendingIndex > index { return }
+        pendingCorrection = (base.job, input)
+        guard correctionTask == nil else { return }
+        let epoch = correctionEpoch
+        correctionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if epoch == self.correctionEpoch {
+                    self.correctionTask = nil
+                    if self.correctionStatus.hasPrefix("訳文を補正中") { self.correctionStatus = "オン · 次の話の区切りを待っています。" }
+                }
+            }
+            while let pending = self.pendingCorrection {
+                self.pendingCorrection = nil
+                guard !Task.isCancelled, epoch == self.correctionEpoch else { return }
+                guard self.canApplyCorrection(pending.job) else { continue }
+                self.correctionStatus = "訳文を補正中 · 字幕の表示は続けます。"
+                do {
+                    let value = try await self.correctTranslation(pending.input)
+                    guard !Task.isCancelled, epoch == self.correctionEpoch else { return }
+                    guard self.canApplyCorrection(pending.job) else { continue }
+                    let text = try LocalCaptionCorrector.validate(value, for: pending.input)
+                    if let index = self.logs.firstIndex(where: { $0.id == pending.job.cueID }) {
+                        self.logs[index].translation = text
+                        self.logs[index].translationCorrected = text != pending.input.translation
+                    }
+                    self.sentenceReading.replace(text, cueID: pending.job.cueID, now: ProcessInfo.processInfo.systemUptime)
+                    if self.currentID == pending.job.cueID { self.translatedText = text }
+                    self.scheduleReadingUpdate()
+                    self.correctionStatus = text == pending.input.translation ? "確認済み · 通常の訳文を維持しました。" : "補正済み · 次の話の区切りを待っています。"
+                } catch {
+                    guard !Task.isCancelled, epoch == self.correctionEpoch else { return }
+                    self.correctionStatus = "通常の訳文を表示中 · AIが遅い、未準備、または補正を採用できませんでした。"
+                }
+            }
+        }
+    }
+    private func canApplyCorrection(_ job: TranslationJob) -> Bool {
+        captionCorrectionEnabled && job.generation == contentGeneration && revisions[job.cueID] == job.revision
+            && translatedRevisions[job.cueID] == job.revision && finalRevisions[job.cueID] == job.revision
+            && logs.suffix(3).contains(where: { $0.id == job.cueID })
     }
 
     func toggleMic() {
@@ -408,6 +515,9 @@ final class AppModel: ObservableObject {
         micStartTask?.cancel(); micStartTask = nil
         speech.stop(notify: wasActive)
         isListening = false; isStartingMic = false
+        if wasActive, let currentID {
+            currentIsFinal = true; finalRevisions[currentID] = revisions[currentID]; requestCorrection(currentID)
+        }
         if wasActive { status = "マイクを停止しました。最後の発話の翻訳は更新を続けます。" }
     }
     func sendTypedCaption() {
@@ -455,9 +565,9 @@ final class AppModel: ObservableObject {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let formatter = DateFormatter(); formatter.dateFormat = "HH:mm:ss"
         let text = "Quillo · 字幕ログ\n翻訳未完了の行には印を付けています。\n\n" + logs.map {
-            "[\(formatter.string(from: $0.time))] \($0.kind)\n\($0.source)\n\($0.translation)" + ($0.translationIncomplete ? "\n（翻訳未完了・途中の結果）" : "")
+            "[\(formatter.string(from: $0.time))] \($0.kind)\n\($0.source)\n\($0.translation)" + ($0.translationCorrected ? "\n（AI補正）" : "") + ($0.translationIncomplete ? "\n（翻訳未完了・途中の結果）" : "")
         }.joined(separator: "\n\n")
         do { try text.write(to: url, atomically: true, encoding: .utf8); status = "字幕ログを保存しました。" } catch { status = "保存できませんでした：\(error.localizedDescription)" }
     }
-    func shutdown() { slides.shutdown(); stopMic(); stopDemo(); readingTask?.cancel(); readingTask = nil; translationContinuation?.finish(); overlay?.savePosition() }
+    func shutdown() { resetCorrections(); slides.shutdown(); stopMic(); stopDemo(); readingTask?.cancel(); readingTask = nil; translationContinuation?.finish(); overlay?.savePosition() }
 }

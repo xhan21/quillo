@@ -15,7 +15,7 @@ $SWIFT Sources/CaptionSupport.swift Sources/CaptionAppearance.swift Sources/Capt
 build/sentence-reading-tests
 $SWIFT Sources/CaptionSupport.swift Sources/SlideLayout.swift Sources/SlidePanelLayout.swift Sources/SlidePanelPresentation.swift Tests/SlidePanelTests.swift -o build/slide-panel-tests -framework AppKit
 build/slide-panel-tests
-$SWIFT Sources/CaptionSupport.swift Sources/MaterialGlossary.swift Sources/SlideLayout.swift Sources/SlidePanelLayout.swift Sources/SlideSummary.swift Tests/SlideSummaryTests.swift -o build/slide-summary-tests -framework AppKit
+$SWIFT Sources/CaptionSupport.swift Sources/MaterialGlossary.swift Sources/SlideLayout.swift Sources/SlidePanelLayout.swift Sources/SlideSummary.swift Sources/LocalOllama.swift Tests/SlideSummaryTests.swift -o build/slide-summary-tests -framework AppKit
 build/slide-summary-tests
 $SWIFT Sources/CaptionSupport.swift Sources/SlideLayout.swift Sources/SlideReadingOrder.swift Sources/SlideAnalyzer.swift Sources/SlideAnnotationRenderer.swift Sources/SlideDemo.swift Tests/SlideTests.swift -o build/slide-tests -framework AppKit -framework Vision
 build/slide-tests
@@ -23,6 +23,8 @@ $SWIFT Sources/CaptionSupport.swift Sources/SlideLayout.swift Sources/SlideReadi
 build/slide-region-tests
 APP_SOURCES=(Sources/*.swift)
 APP_SOURCES=(${APP_SOURCES:#Sources/Main.swift})
+$SWIFT $APP_SOURCES Tests/CaptionCorrectionTests.swift -o build/caption-correction-tests -framework AppKit -framework SwiftUI -framework Speech -framework AVFoundation -framework Translation -framework ScreenCaptureKit -framework Vision -framework CoreImage
+build/caption-correction-tests
 $SWIFT $APP_SOURCES Tests/PlaybackIntegrationTests.swift -o build/playback-integration-tests -framework AppKit -framework SwiftUI -framework Speech -framework AVFoundation -framework Translation -framework ScreenCaptureKit -framework Vision -framework CoreImage
 build/playback-integration-tests
 $SWIFT $APP_SOURCES Tests/GlossaryTests.swift -o build/glossary-tests -framework AppKit -framework SwiftUI -framework Speech -framework AVFoundation -framework Translation -framework ScreenCaptureKit -framework Vision -framework CoreImage

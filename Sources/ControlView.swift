@@ -134,6 +134,15 @@ struct ControlView: View {
             }.font(.system(size: 12))
             Text("現在の文に加え、直前の1〜2文を薄く表示します。オフでは現在の文だけを表示します。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Divider()
+            Toggle("翻訳文をAIで補正（試用）", isOn: Binding(get: { model.captionCorrectionEnabled }, set: { model.setCaptionCorrection($0) }))
+                .toggleStyle(.switch).font(.system(size: 12))
+            Text("通常の訳をすぐ表示し、話の区切りで読みやすく補正します。原文は変えません。Mac内の要約用AIを使い、遅いときは通常の訳を残します。")
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if model.captionCorrectionEnabled {
+                Text(model.correctionStatus).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
             HStack(spacing: 24) {
                 ValueAdjustment(title: "原文の文字サイズ", value: $model.appearance.sourceFontSize, range: 14...90, unit: "pt")
                 ValueAdjustment(title: "翻訳の文字サイズ", value: $model.appearance.translationFontSize, range: 14...90, unit: "pt")
