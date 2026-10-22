@@ -144,7 +144,7 @@ struct OverlayCaptionView: View {
                         .background(style.foreground.opacity(0.10), in: Capsule())
                         .overlay(Capsule().strokeBorder(style.foreground.opacity(0.25)))
                         .fixedSize().layoutPriority(1)
-                        .accessibilityLabel("現在の訳: " + state.label)
+                        .accessibilityLabel("現在の入力: " + state.label)
                 }
                 Text(model.captionKind).font(.system(size: 10, weight: .medium))
                 Spacer()

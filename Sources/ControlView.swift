@@ -95,7 +95,7 @@ struct ControlView: View {
                 Text("原文 ＋ 翻訳").tag(CaptionDisplayMode.bilingual.rawValue)
             }.pickerStyle(.segmented).labelsHidden()
             if let state = model.currentCorrectionState {
-                Label("現在の訳：" + state.label, systemImage: state.symbol)
+                Label("現在の入力：" + state.label, systemImage: state.symbol)
                     .font(.system(size: 12, weight: .medium))
             }
             Text(model.status).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -139,28 +139,27 @@ struct ControlView: View {
             Text("現在の文に加え、直前の1〜2文を薄く表示します。オフでは現在の文だけを表示します。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Divider()
-            Toggle("翻訳文をAIで補正（試用）", isOn: Binding(get: { model.captionCorrectionEnabled }, set: { model.setCaptionCorrection($0) }))
+            Toggle("入力文をAIで補正（試用）", isOn: Binding(get: { model.captionCorrectionEnabled }, set: { model.setCaptionCorrection($0) }))
                 .toggleStyle(.switch).font(.system(size: 12))
-            Text("通常の訳をすぐ表示し、話の区切りで読みやすく補正します。原文は変えません。Mac内の要約用AIを使い、遅いときは通常の訳を残します。")
+            Text("音声認識・文字入力の原文を、話の区切りで補正し、その原文から翻訳し直します。字幕は先に表示し、不明な言葉は推測で補いません。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if model.captionCorrectionEnabled {
                 if let state = model.currentCorrectionState {
-                    Label("現在の訳：" + state.label, systemImage: state.symbol).font(.system(size: 12, weight: .semibold))
+                    Label("現在の入力：" + state.label, systemImage: state.symbol).font(.system(size: 12, weight: .semibold))
                     Text(state.detail).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text(model.correctionStatus).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 DisclosureGroup("補正前後を確認") {
-                    if let line = model.latestCorrection, let before = line.translationBeforeCorrection {
+                    if let line = model.latestCorrection, let before = line.sourceBeforeCorrection {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("直近に補正した訳").fontWeight(.semibold)
-                            Text("原文：" + line.source)
+                            Text("直近に補正した入力文").fontWeight(.semibold)
                             Text("補正前：" + before).foregroundStyle(.secondary)
-                            Text("補正後：" + line.translation)
+                            Text("補正後：" + line.source)
                         }.font(.system(size: 12)).textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true).padding(.top, 8)
                     } else {
-                        Text("AIで変更した訳はまだありません。補正が採用されると、ここに表示します。")
+                        Text("AIで変更した入力文はまだありません。補正が採用されると、ここに表示します。")
                             .font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, 8)
                     }
                 }.font(.system(size: 12))
@@ -211,7 +210,7 @@ struct ControlView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(line.source).font(.system(size: 11)).lineLimit(2)
                     if !line.translation.isEmpty { Text(line.translation).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2) }
-                    if line.translationCorrected { Label("AI補正済み", systemImage: "checkmark.seal.fill").font(.system(size: 10)) }
+                    if line.sourceCorrected { Label("原文AI補正済み", systemImage: "checkmark.seal.fill").font(.system(size: 10)) }
                     if line.translationIncomplete { Text("翻訳未完了・途中の結果").font(.system(size: 9)).foregroundStyle(.secondary) }
                 }
             }

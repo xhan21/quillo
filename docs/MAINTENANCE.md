@@ -36,7 +36,7 @@
 
 0.1.4から音声入力は本人の希望で日本語・英語のみ。中国語の音声モデル取得を利用者に求めないでください。翻訳先・資料の言語・文字入力は4言語を維持し、話す言語と資料の言語を独立させています。表示先のみ共通です。翻訳用モデルの取得完了と、音声認識の利用可否は別に確認します。
 
-任意の字幕補正は`CaptionCorrection.swift`、字幕への適用は`AppModel.swift`にあります。通常のApple翻訳を表示後、確定した話の区切りだけをローカルAIへ渡します。原文・通常訳・直前の発話・一致する辞書用語だけを使い、補正候補の意味を再確認し、二段階を合わせて約4秒を超えたら通常訳を維持します。接続の保護は`LocalOllama.swift`で資料要約と共通化しています。補正設定は初期値オフ。本人の試用版ではオンにしています。
+任意の入力文補正は`CaptionCorrection.swift`、字幕への適用は`AppModel.swift`にあります。0.1.15から本人の意図に合わせ、翻訳後の文ではなく音声認識・文字入力の原文を補正します。入力と初回訳は待たせず、話の区切りで同じ言語の最小限の誤記修正を行い、採用した原文から訳し直します。原文のみ・同じ入出力言語でも補正できます。認識の版と翻訳の版を分け、補正前の訳が遅れて届いても戻さず、履歴の同じ位置へ反映します。数字・否定・用語・変更量とAIによる照合を合わせて約4秒以内で確認します。接続の保護は`LocalOllama.swift`で資料要約と共通。補正設定は初期値オフ、既存のオン／オフは引き継ぎます。
 
 資料要約は別途導入したOllamaと取得済みのローカルモデルを利用します。現在の標準はqwen3.5:9bです。モデル選定の根拠はMODEL-EVALUATION.mdを参照してください。モデル名が同じでも配布内容が変わる場合があるため、更新時は実際の形式・ローカル実行・4言語・数値と条件・速度・メモリ使用量を確認し、動作確認後に標準を変更します。
 
@@ -48,7 +48,7 @@
 
 マイクの履歴変更では、句点も新しい認識IDも来ない累積途中結果を必ずテストしてください。`SpeechPhraseTests`と`PlaybackIntegrationTests`で確認します。`zsh Tools/build-speech-history-check.sh`で作る`build/QuilloSpeechHistoryCheck.app`は、架空の合成音声を実Apple Speechへ流し、実Translationと本番の字幕表示へつなげます。マイクを使わず、結果は`/private/tmp/quillo-speech-history-check.json`へ出力します。`zsh Tools/build-speech-history-check.sh --short-start`は、冒頭の待ち時間を置かず「大丈夫です」から始め、認識原文と字幕の先頭が残るかを確認します。これは実際の教室音声の精度確認とは別です。
 
-英語・中国語訳の読みやすさ表示を変更した場合は`SentenceCaptionReadingTests`と`PlaybackIntegrationTests`を実行します。`zsh Tools/build-reading-check.sh`で作る`build/QuilloReadingCheck.app`は、架空の日本語・英語を実Apple Translationへ渡し、英語・中国語（簡体字／繁体字）の訳の標準表示を確認できます。途中認識を模した入力であり、マイクは使用しません。結果は`/private/tmp/quillo-caption-reading-check.json`です。0.1.13では任意の訳文補正を追加。`CaptionCorrectionTests`で即時表示・確定時のみの補正・履歴・オフ復帰・古い結果の除外を確認し、`build/caption-correction-tests --live`で架空の文章を実モデルに渡して意味と速度を点検します。数字・用語の機械的確認だけで正確さを判断しないでください。
+英語・中国語訳の読みやすさ表示を変更した場合は`SentenceCaptionReadingTests`と`PlaybackIntegrationTests`を実行します。`zsh Tools/build-reading-check.sh`で作る`build/QuilloReadingCheck.app`は、架空の日本語・英語を実Apple Translationへ渡し、英語・中国語（簡体字／繁体字）の訳の標準表示を確認できます。途中認識を模した入力であり、マイクは使用しません。結果は`/private/tmp/quillo-caption-reading-check.json`です。0.1.15では入力文の補正に変更。`CaptionCorrectionTests`で即時表示・原文のみ・原文補正から再翻訳・オフ復帰・履歴・古い原文や訳の拒否を確認し、`build/caption-correction-tests --live`で架空の誤字・曖昧な断片・数値と否定を実モデルへ渡します。入力の正確さを機械的確認だけで判断しないでください。
 
 範囲編集を変更した場合は`SlideRegionEditingTests`に加え、`zsh Tools/build-region-check.sh`で作る`build/QuilloRegionCheck.app`で、移動・角と辺の拡縮・元に戻す・キャンセルを確認します。これは架空のスライドを使う画面で、他アプリの画面共有やマイクは使用しません。
 

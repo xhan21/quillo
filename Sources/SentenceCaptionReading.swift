@@ -71,6 +71,11 @@ struct SentenceCaptionReading {
             lastDisplay = now; self.pending = nil
         }
     }
+    // Clear obsolete translation content while retaining its history slot.
+    mutating func invalidate(cueID: UUID) {
+        if active?.id == cueID { active = Cue(id: cueID); pending = nil; lastDisplay = -.infinity }
+        else if let index = retired.firstIndex(where: { $0.id == cueID }) { retired[index] = Cue(id: cueID) }
+    }
     // A proofreading result replaces this cue in place. Re-punctuation is not
     // a new utterance and must not archive the uncorrected version as history.
     mutating func replace(_ value: String, cueID: UUID, now: Double) {
