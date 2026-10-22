@@ -65,11 +65,16 @@ final class AppModel: ObservableObject {
     private var translatedRevisions: [UUID: Int] = [:]
     private var submitted: [UUID: TranslationJob] = [:]
     private let correctSource: (CaptionCorrectionRequest) async throws -> String
+    private let prepareCorrection: () async -> Void
+    private var correctionWarmup: Task<Void, Never>?
     private var correctionTask: Task<Void, Never>?
+    private var correctionDebounce: Task<Void, Never>?
+    static let correctionStabilityDelay: Double = 0.45
     private var correctionEpoch = 0
     private var pendingCorrection: (job: TranslationJob, input: CaptionCorrectionRequest)?
     private var correctionAttempts: [UUID: Int] = [:]
     private var finalInputRevisions: [UUID: Int] = [:]
+    private var stableInputRevisions: [UUID: Int] = [:]
     private var rawSources: [UUID: String] = [:]
     private var inputRevisions: [UUID: Int] = [:]
     // Translation revisions change again when AI repairs/restores the input.
@@ -140,6 +145,7 @@ final class AppModel: ObservableObject {
     init(glossary: GlossaryStore? = nil, corrector: ((CaptionCorrectionRequest) async throws -> String)? = nil) {
         let client = LocalCaptionCorrector()
         correctSource = corrector ?? { try await client.correct($0) }
+        prepareCorrection = corrector == nil ? { await client.warmUp() } : {}
         self.glossary = glossary ?? GlossaryStore()
         self.glossary.onChange = { [weak self] in self?.glossaryChanged() }
         speech.contextualPhrases = self.glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
@@ -149,8 +155,9 @@ final class AppModel: ObservableObject {
         speech.onStarted = { [weak self] in self?.isStartingMic = false }
         speech.onStopped = { [weak self] in self?.isListening = false; self?.isStartingMic = false }
         showSample()
-        if captionCorrectionEnabled { correctionStatus = "オン · 話の区切りで入力文を補正します。" }
+        if captionCorrectionEnabled { correctionStatus = "オン · 入力が落ち着いたら、文脈を使って補正します。" }
         refreshSpeechReadiness()
+        warmCorrection()
     }
     func refreshSpeechReadiness() {
         speechLanguageReady = SFSpeechRecognizer(locale: Locale(identifier: speechLanguage.speechLocale))?.supportsOnDeviceRecognition == true
@@ -188,6 +195,7 @@ final class AppModel: ObservableObject {
         }
         if requiresTranslation { submitTranslation(id: id, text: raw) }
         if currentIsFinal { requestCorrection(id) }
+        else { scheduleInputCorrection(id) }
     }
     var microphoneActionTitle: String { isStartingMic ? "開始を中止" : isListening ? "字幕を停止" : "話して字幕を出す" }
     func hideOverlay() { overlayVisible = false; overlay?.hide() }
@@ -235,6 +243,7 @@ final class AppModel: ObservableObject {
         let changed = rawSources[id] != clean
         let wasCorrected = index.map { logs[$0].sourceCorrected } ?? false
         if currentID != id {
+            correctionDebounce?.cancel(); correctionDebounce = nil
             sentenceReading.begin(id, language: targetLanguage, now: ProcessInfo.processInfo.systemUptime); scheduleReadingUpdate()
             sourceReading.begin(id, language: sourceLanguage, now: ProcessInfo.processInfo.systemUptime)
             currentID = id; translatedText = ""; liveTranslationFailed = false
@@ -255,6 +264,7 @@ final class AppModel: ObservableObject {
             rawSources[id] = clean; inputRevisions[id, default: 0] += 1
             revisions[id, default: 0] += 1; liveTranslationFailed = false
             finalInputRevisions[id] = nil
+            stableInputRevisions[id] = nil
             if let index { logs[index].correctionState = .original; logs[index].sourceBeforeCorrection = nil }
             if wasCorrected { invalidateTranslation(id) }
         }
@@ -262,9 +272,10 @@ final class AppModel: ObservableObject {
         translationUpdating = requiresTranslation && translatedRevisions[id] != revisions[id]
         if requiresTranslation { submitTranslation(id: id, text: displayed) }
         if final {
+            correctionDebounce?.cancel(); correctionDebounce = nil
             sentenceReading.flush(now: ProcessInfo.processInfo.systemUptime); scheduleReadingUpdate()
             requestCorrection(id)
-        }
+        } else if changed { scheduleInputCorrection(id) }
     }
     private func handleSpeech(_ snapshot: SpeechSnapshot, final: Bool) {
         guard isListening || isStartingMic else { return }
@@ -470,11 +481,17 @@ final class AppModel: ObservableObject {
         captionCorrectionEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: "captionCorrection.v1")
         correctionEpoch += 1; correctionTask?.cancel(); correctionTask = nil; pendingCorrection = nil; correctionAttempts = [:]
+        correctionDebounce?.cancel(); correctionDebounce = nil
         clearPendingCorrectionStates()
-        correctionStatus = enabled ? "オン · 話の区切りで入力文を補正します。" : "オフ · 入力文をそのまま表示します。"
+        correctionStatus = enabled ? "オン · 入力が落ち着いたら、文脈を使って補正します。" : "オフ · 入力文をそのまま表示します。"
         if enabled {
-            if let currentID { requestCorrection(currentID) }
+            warmCorrection()
+            if let currentID {
+                requestCorrection(currentID)
+                if !currentIsFinal { scheduleInputCorrection(currentID) }
+            }
         } else {
+            correctionWarmup?.cancel(); correctionWarmup = nil
             // Restore the captured input, then translate it again; never restore
             // a translation of a different source or restart microphone capture.
             for index in logs.indices.suffix(3) where logs[index].sourceCorrected {
@@ -485,11 +502,18 @@ final class AppModel: ObservableObject {
             }
         }
     }
+    private func warmCorrection() {
+        guard captionCorrectionEnabled else { return }
+        correctionWarmup?.cancel()
+        let prepare = prepareCorrection
+        correctionWarmup = Task { await prepare() }
+    }
     private func resetCorrections() {
         correctionEpoch += 1; correctionTask?.cancel(); correctionTask = nil; pendingCorrection = nil
+        correctionDebounce?.cancel(); correctionDebounce = nil
         clearPendingCorrectionStates()
-        correctionAttempts = [:]; finalInputRevisions = [:]
-        correctionStatus = captionCorrectionEnabled ? "オン · 話の区切りで入力文を補正します。" : "オフ · 入力文をそのまま表示します。"
+        correctionAttempts = [:]; finalInputRevisions = [:]; stableInputRevisions = [:]
+        correctionStatus = captionCorrectionEnabled ? "オン · 入力が落ち着いたら、文脈を使って補正します。" : "オフ · 入力文をそのまま表示します。"
     }
     private func clearPendingCorrectionStates() {
         for index in logs.indices where [.queued, .checking, .unchanged, .unavailable].contains(logs[index].correctionState) {
@@ -501,9 +525,26 @@ final class AppModel: ObservableObject {
               let index = logs.firstIndex(where: { $0.id == job.cueID }) else { return }
         logs[index].correctionState = state
     }
+    private func scheduleInputCorrection(_ id: UUID) {
+        correctionDebounce?.cancel(); correctionDebounce = nil
+        guard captionCorrectionEnabled, let revision = inputRevisions[id] else { return }
+        let generation = contentGeneration, epoch = correctionEpoch
+        correctionDebounce = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(Self.correctionStabilityDelay)) }
+            catch { return }
+            guard let self, !Task.isCancelled, self.captionCorrectionEnabled,
+                  generation == self.contentGeneration, epoch == self.correctionEpoch,
+                  self.currentID == id, self.inputRevisions[id] == revision else { return }
+            self.stableInputRevisions[id] = revision
+            self.requestCorrection(id)
+        }
+    }
+    private func inputReadyForCorrection(_ id: UUID, revision: Int) -> Bool {
+        finalInputRevisions[id] == revision || stableInputRevisions[id] == revision
+    }
     private func requestCorrection(_ id: UUID) {
         guard captionCorrectionEnabled, let raw = rawSources[id], let revision = inputRevisions[id],
-              finalInputRevisions[id] == revision, correctionAttempts[id] != revision,
+              inputReadyForCorrection(id, revision: revision), correctionAttempts[id] != revision,
               let index = logs.firstIndex(where: { $0.id == id }), index >= logs.count - 3 else { return }
         correctionAttempts[id] = revision
         let job = TranslationJob(cueID: id, revision: revision, generation: contentGeneration, text: raw)
@@ -520,7 +561,7 @@ final class AppModel: ObservableObject {
             defer {
                 if epoch == self.correctionEpoch {
                     self.correctionTask = nil
-                    if self.correctionStatus.hasPrefix("入力文を補正中") { self.correctionStatus = "オン · 次の話の区切りを待っています。" }
+                    if self.correctionStatus.hasPrefix("入力文を補正中") { self.correctionStatus = "オン · 次の入力を待っています。" }
                 }
             }
             while let pending = self.pendingCorrection {
@@ -555,7 +596,7 @@ final class AppModel: ObservableObject {
     }
     private func canApplyCorrection(_ job: TranslationJob) -> Bool {
         captionCorrectionEnabled && job.generation == contentGeneration && inputRevisions[job.cueID] == job.revision
-            && finalInputRevisions[job.cueID] == job.revision && rawSources[job.cueID] == job.text
+            && inputReadyForCorrection(job.cueID, revision: job.revision) && rawSources[job.cueID] == job.text
             && logs.suffix(3).contains(where: { $0.id == job.cueID })
     }
 
@@ -568,6 +609,7 @@ final class AppModel: ObservableObject {
             return
         }
         stopDemo(); resetLiveCaption()
+        warmCorrection()
         isStartingMic = true; isListening = true; captionKind = "マイク準備中"
         status = "マイクと音声認識の許可を確認しています。"; ensureOverlay()
         if requiresTranslation && !translationReady { prepareTranslation() }
@@ -637,5 +679,5 @@ final class AppModel: ObservableObject {
         let text = "Quillo · 字幕ログ\n翻訳未完了の行には印を付けています。\n\n" + entries.joined(separator: "\n\n")
         do { try text.write(to: url, atomically: true, encoding: .utf8); status = "字幕ログを保存しました。" } catch { status = "保存できませんでした：\(error.localizedDescription)" }
     }
-    func shutdown() { stopMic(); resetCorrections(); slides.shutdown(); stopDemo(); readingTask?.cancel(); readingTask = nil; translationContinuation?.finish(); overlay?.savePosition() }
+    func shutdown() { stopMic(); resetCorrections(); correctionWarmup?.cancel(); correctionWarmup = nil; slides.shutdown(); stopDemo(); readingTask?.cancel(); readingTask = nil; translationContinuation?.finish(); overlay?.savePosition() }
 }

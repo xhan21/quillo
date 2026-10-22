@@ -141,7 +141,7 @@ struct ControlView: View {
             Divider()
             Toggle("入力文をAIで補正（試用）", isOn: Binding(get: { model.captionCorrectionEnabled }, set: { model.setCaptionCorrection($0) }))
                 .toggleStyle(.switch).font(.system(size: 12))
-            Text("音声認識・文字入力の原文を、話の区切りで補正し、その原文から翻訳し直します。字幕は先に表示し、不明な言葉は推測で補いません。")
+            Text("入力が少し落ち着くと、直前の文脈から誤字や抜けた文字を補正し、訳し直します。字幕はすぐ表示します。文脈によっては補い間違えることがあります。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if model.captionCorrectionEnabled {
                 if let state = model.currentCorrectionState {

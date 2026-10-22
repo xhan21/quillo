@@ -22,7 +22,7 @@ I made Quillo to handle captions separately from the presentation app and provid
 - **Flexible placement** — Drag the panels anywhere and adjust their size, fonts, and backgrounds.
 - **Display choices** — Show the original, the translation, or both. Supports Japanese, English, Simplified Chinese, and Traditional Chinese.
 - **Choose caption history** — Show one or two earlier sentences dimmed, or turn history off in settings. Font sizes adjust automatically for both originals and translations. No scrolling.
-- **Optional AI input correction (experimental)** — Local AI repairs the recognized or typed source text, then that source is translated again. Live captions appear first; uncertain short fragments stay unchanged. Enable it and compare the original/repaired input in Settings.
+- **Optional AI input correction (experimental)** — Local AI repairs the recognized or typed source text, then that source is translated again. Live captions appear first; stable input is checked for typos and context-supported missing characters. Enable it and compare the original/repaired input in Settings.
 - **Class glossaries** — Add terminology for each set of teaching materials to help recognition and keep translations consistent.
 
 Microphone input supports **Japanese and English**. Caption translation targets, material languages, and typed input support **Japanese, English, Simplified Chinese, and Traditional Chinese**. Choose the spoken and material languages separately.

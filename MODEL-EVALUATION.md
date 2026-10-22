@@ -91,3 +91,9 @@ The implication p→q is false only when p is true and q is false.
 ### compact → en（0.98秒）
 
 Computer processes input and outputs results via screen or sound.
+
+## 入力文の補正用比較（2026-10-22）
+
+要約とは別に、認識文の誤字・抜けた文字の補正を既存3モデルで比較しました。Gemma 4 E2Bは短文を速く返しましたが、安心を表す文脈の「丈夫→大丈夫」を補えず、Qwen3 4Bには「くだい→くだしゃい」という誤補正もありました。Qwen3.5 9Bを継続し、入力安定待ち・生成指示・追加照合の条件を調整しています。
+
+少数の架空例であり、モデル全体の優劣ではありません。Qwen3.5にも文脈に合わない補完が残ります。速度・成功例・失敗例・実アプリでの確認範囲は[0.1.16の確認記録](docs/VALIDATION.md#0116-入力中の補完と待ち時間の短縮)を参照してください。各比較の生データはローカルの`build/fast-correction-model-benchmark.json`等で、モデルや個人データは公開対象に含めません。
