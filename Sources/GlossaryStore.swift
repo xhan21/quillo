@@ -11,6 +11,24 @@ final class GlossaryStore: ObservableObject {
     private let directory: URL
     private let defaults: UserDefaults
     var selected: MaterialGlossary? { dictionaries.first { $0.id == selectedID } }
+    let common = CommonVocabulary.glossary
+    var effective: MaterialGlossary { .combining(common: common, course: selected) }
+    var translationGlossary: MaterialGlossary { .combining(common: CommonVocabulary.translationGlossary, course: selected) }
+    func recognitionPhrases(_ language: CaptionLanguage) -> [String] {
+        let combined = effective
+        let course = selected?.recognitionPhrases(language) ?? []
+        let courseCount = selected?.entries.count ?? 0
+        let commonEntries = Array(combined.entries.dropFirst(selected == nil ? 0 : courseCount))
+        let commonPhrases = commonEntries.compactMap { $0.term(language) }
+            + (language == .japanese ? CommonVocabulary.conversation : [])
+            + commonEntries.flatMap { $0.aliases[language.rawValue] ?? [] }
+        // Share Apple's 100 hints: reserve up to 40 for common words so a full
+        // course dictionary cannot disable them; unused capacity goes to either.
+        let shared = Array(commonPhrases.prefix(40))
+        let priority = Array(course.prefix(100 - shared.count)) + shared + course + commonPhrases
+        var seen = Set<String>()
+        return Array(priority.filter { seen.insert($0.lowercased()).inserted }.prefix(100))
+    }
     init(directory: URL? = nil, defaults: UserDefaults = .standard) {
         self.directory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Quillo/Glossaries", isDirectory: true)

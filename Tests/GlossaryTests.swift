@@ -67,11 +67,43 @@ import AppKit
         let file = root.appendingPathComponent("import.json"), directory = root.appendingPathComponent("saved")
         try JSONEncoder().encode(basic).write(to: file)
         let store = GlossaryStore(directory: directory, defaults: defaults)
+        let common = try MaterialGlossary.decode(JSONEncoder().encode(CommonVocabulary.glossary))
+        precondition(common.entries.count == 25 && CommonVocabulary.conversation.count == 12)
+        precondition(store.selected == nil && store.effective == common)
+        for phrase in ["声色", "こわいろ", "ローカルLLM", "大丈夫です", "なるほど"] {
+            precondition(store.recognitionPhrases(.japanese).contains(phrase))
+        }
+        precondition(store.effective.matches(in: "丈夫な素材", language: .japanese, target: .english).isEmpty,
+                     "Never register a valid ordinary word as a mistaken alias")
+        precondition(!GlossaryTranslation(source: "よろしくお願いします", language: .japanese, target: .english,
+                                         glossary: store.translationGlossary).hasTerms)
         try store.importFile(file)
         precondition(store.selected == basic)
+        precondition(store.effective.entries.contains(common.entries[0]) && store.effective.entries.contains(basic.entries[0]))
+        let both = GlossaryTranslation(source: "こわいろと命題", language: .japanese, target: .english, glossary: store.translationGlossary)
+        precondition(both.restore("QZTERM000QZ and QZTERM001QZ") == "tone of voice and proposition")
+        let hints = store.effective.summaryTerms(in: "こわいろとローカルエルエルエム", language: .japanese, target: .japanese)
+        let correction = CaptionCorrectionRequest(source: "こわいろとローカルエルエルエム", language: .japanese, terminology: hints)
+        precondition((try? LocalCaptionCorrector.validate("声色とローカルLLM", for: correction)) == "声色とローカルLLM")
+        precondition((try? LocalCaptionCorrector.validate("声色とローカル LLM", for: correction)) == "声色とローカル LLM")
+        precondition((try? LocalCaptionCorrector.validate("声色とクラウドLLM", for: correction)) == nil)
+        let preferred = MaterialGlossary(id: "voice-course", name: "Voice", entries: [
+            .init(terms: ["ja": "声色", "en": "vocal expression"], aliases: ["ja": ["こわいろ"]])])
+        let merged = MaterialGlossary.combining(common: common, course: preferred)
+        precondition(merged.matches(in: "こわいろ", language: .japanese, target: .english).first?.entry.term(.english) == "vocal expression")
+        precondition(!merged.entries.contains(common.entries[0]) && common.entries[0].term(.english) == "tone of voice")
+        // Full course dictionaries cannot push every shared hint out of Apple's cap.
+        let full = MaterialGlossary(id: "full", name: "Full", entries: (0..<100).map {
+            .init(terms: ["ja": "授業用語\($0)", "en": "course term \($0)"])
+        })
+        try JSONEncoder().encode(full).write(to: file); try store.importFile(file)
+        let phrases = store.recognitionPhrases(.japanese)
+        precondition(phrases.count == 100 && Set(phrases).count == 100)
+        precondition(phrases.contains("授業用語0") && phrases.contains("声色") && phrases.contains("こわいろ") && phrases.contains("大丈夫です"))
+        store.select("test")
         let loaded = GlossaryStore(directory: directory, defaults: defaults)
         precondition(loaded.selected == basic, "Selected dictionary survives restart")
-        loaded.select(""); precondition(loaded.selected == nil)
+        loaded.select(""); precondition(loaded.selected == nil && loaded.effective == common)
         let model = AppModel(glossary: store)
         model.clearCaption(); model.isListening = true
         let id = UUID()
@@ -93,8 +125,17 @@ import AppKit
         try await eventually { model.translatedText == "Explain proposition." }
         precondition(model.speech.contextualPhrases.contains("命題"))
         model.shutdown(); worker.cancel(); await worker.value
-        print("PASS: dictionary validation, longest match, aliases, four languages, word boundaries, marker rejection/fallback, local import/restart, stale caption exclusion, session preservation")
+        print("PASS: always-on common vocabulary, course precedence, shared recognition budget, reading-to-term correction, four-language matching, storage/restart, stale caption exclusion and session preservation")
         if CommandLine.arguments.contains("--live") {
+            let correctionService = LocalCaptionCorrector()
+            for text in ["こわいろを変えて説明します。", "ローカルエルエルエムを使います。"] {
+                let terms = store.effective.summaryTerms(in: text, language: .japanese, target: .japanese)
+                let start = Date()
+                do {
+                    let result = try await correctionService.correct(.init(source: text, language: .japanese, terminology: terms))
+                    print("LIVE COMMON INPUT: \(text) -> \(result) (\(Date().timeIntervalSince(start)) seconds)")
+                } catch { print("LIVE COMMON INPUT: \(text) -> unchanged (\(error))") }
+            }
             let service = LocalSlideSummarizer()
             let source = "論理和は、どちらか一方または両方の命題が真ならば真となる。複合命題は複数の命題を組み合わせたもの。"
             for language in [CaptionLanguage.english, .traditionalChinese] {

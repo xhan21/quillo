@@ -148,8 +148,8 @@ final class AppModel: ObservableObject {
         prepareCorrection = corrector == nil ? { await client.warmUp() } : {}
         self.glossary = glossary ?? GlossaryStore()
         self.glossary.onChange = { [weak self] in self?.glossaryChanged() }
-        speech.contextualPhrases = self.glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
-        slides.setGlossary(self.glossary.selected)
+        speech.contextualPhrases = self.glossary.recognitionPhrases(sourceLanguage)
+        slides.setGlossary(self.glossary.effective)
         speech.onText = { [weak self] snapshot, final in self?.handleSpeech(snapshot, final: final) }
         speech.onStatus = { [weak self] message in self?.status = message }
         speech.onStarted = { [weak self] in self?.isStartingMic = false }
@@ -178,8 +178,8 @@ final class AppModel: ObservableObject {
         resetCorrections()
         readingTask?.cancel(); readingTask = nil; sentenceReading = SentenceCaptionReading()
         if let currentID { sentenceReading.begin(currentID, language: targetLanguage, now: ProcessInfo.processInfo.systemUptime) }
-        speech.contextualPhrases = glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
-        slides.setGlossary(glossary.selected)
+        speech.contextualPhrases = glossary.recognitionPhrases(sourceLanguage)
+        slides.setGlossary(glossary.effective)
         // Invalidate old dictionary work without restarting capture/session.
         contentGeneration += 1; mailbox.removeAll(); submitted.removeAll()
         revisions.removeAll(); translatedRevisions.removeAll(); inputRevisions.removeAll(); rawSources.removeAll()
@@ -335,7 +335,7 @@ final class AppModel: ObservableObject {
         // not change OCR language or stop the selected material capture.
         slides.configure(source: slides.source, target: targetLanguage)
         stopMic(); stopDemo(); resetLiveCaption()
-        speech.contextualPhrases = glossary.selected?.recognitionPhrases(sourceLanguage) ?? []
+        speech.contextualPhrases = glossary.recognitionPhrases(sourceLanguage)
         translationEpoch += 1; translationContinuation?.finish(); translationContinuation = nil
         translationConfiguration = nil; translationReady = false; preparingTranslation = false
         translationSessionID = UUID()
@@ -409,7 +409,7 @@ final class AppModel: ObservableObject {
                     guard let job = mailbox.takeNext() else { break }
                     lastStart = .now
                     do {
-                        let terminology = GlossaryTranslation(source: job.text, language: sourceLanguage, target: targetLanguage, glossary: glossary.selected)
+                        let terminology = GlossaryTranslation(source: job.text, language: sourceLanguage, target: targetLanguage, glossary: glossary.translationGlossary)
                         let translated = try await terminology.translate(using: translate)
                         guard epoch == translationEpoch, !Task.isCancelled else { return }
                         guard job.generation == contentGeneration else { continue }
@@ -550,7 +550,7 @@ final class AppModel: ObservableObject {
         let job = TranslationJob(cueID: id, revision: revision, generation: contentGeneration, text: raw)
         let previous = index > 0 && rawSources[logs[index - 1].id] != nil ? logs[index - 1].source : ""
         let input = CaptionCorrectionRequest(source: raw, language: sourceLanguage, previousSource: previous,
-            terminology: glossary.selected?.summaryTerms(in: raw, language: sourceLanguage, target: sourceLanguage) ?? "")
+            terminology: glossary.effective.summaryTerms(in: raw, language: sourceLanguage, target: sourceLanguage))
         if let pendingCorrection, let pendingIndex = logs.firstIndex(where: { $0.id == pendingCorrection.job.cueID }), pendingIndex > index { return }
         if let old = pendingCorrection { setCorrectionState(.original, for: old.job) }
         pendingCorrection = (job, input); setCorrectionState(.queued, for: job)

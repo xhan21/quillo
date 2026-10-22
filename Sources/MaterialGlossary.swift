@@ -21,6 +21,21 @@ struct MaterialGlossary: Codable, Equatable, Identifiable {
     let name: String
     let entries: [GlossaryEntry]
 
+    // The chosen course wins on any shared canonical spelling or alias, in any
+    // language. Drop the conflicting common entry as a whole to avoid inconsistent
+    // forward/reverse translations. Neither source dictionary is mutated.
+    static func combining(common: MaterialGlossary, course: MaterialGlossary?) -> MaterialGlossary {
+        guard let course else { return common }
+        func keys(_ entry: GlossaryEntry) -> Set<String> {
+            Set(CaptionLanguage.allCases.flatMap { language in
+                entry.phrases(language).map { language.rawValue + "|" + $0.lowercased() }
+            })
+        }
+        let courseKeys = course.entries.reduce(into: Set<String>()) { $0.formUnion(keys($1)) }
+        let shared = common.entries.filter { keys($0).isDisjoint(with: courseKeys) }
+        return MaterialGlossary(id: "quillo-effective", name: course.name + " ＋ 共通辞書", entries: course.entries + shared)
+    }
+
     static func decode(_ data: Data) throws -> MaterialGlossary {
         guard data.count <= 262_144 else { throw GlossaryError.invalidFile }
         let value = try JSONDecoder().decode(Self.self, from: data)

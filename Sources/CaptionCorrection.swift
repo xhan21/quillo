@@ -78,7 +78,8 @@ final class LocalCaptionCorrector {
         let corrected = try Self.validate(result.text, for: input)
         // One-character repairs and punctuation need no second generation.
         // Larger changes retain the semantic check. Neither path guarantees ASR accuracy.
-        if Self.editDistance(Self.content(input.source), Self.content(corrected)) > 1 {
+        if Self.editDistance(Self.content(Self.comparisonText(input.source, for: input)),
+                             Self.content(Self.comparisonText(corrected, for: input))) > 1 {
             try await review(corrected, input: input)
         }
         return corrected
@@ -108,11 +109,15 @@ final class LocalCaptionCorrector {
     // semantic equivalence. Reject suspicious changes and retain the base text.
     static func validate(_ value: String, for input: CaptionCorrectionRequest) throws -> String {
         let text = input.language.normalizeScript(captionText(value))
-        guard !text.isEmpty, text.count <= input.source.count + max(3, input.source.count / 5),
-              text.count >= max(1, input.source.count - max(3, input.source.count / 5)), !text.contains("```"),
+        // Known readings such as こわいろ -> 声色 can change several characters.
+        // Compare both sides with only the input-matched glossary pairs normalized;
+        // unrelated edits still use the same limits and number/condition checks.
+        let base = comparisonText(input.source, for: input), comparison = comparisonText(text, for: input)
+        guard !text.isEmpty, comparison.count <= base.count + max(3, base.count / 5),
+              comparison.count >= max(1, base.count - max(3, base.count / 5)), !text.contains("```"),
               numbers(text) == numbers(input.source),
               preservesConstraints(text, base: input.source, language: input.language) else { throw CaptionCorrectionError.invalidResult }
-        let original = content(input.source), candidate = content(text)
+        let original = content(base), candidate = content(comparison)
         // A short input can restore ONE character with previous context. Do not
         // permit a replacement/rewrite, or a context-free completion of a fragment.
         let contextualInsertion = input.previousSource.count >= 6 && candidate.count == original.count + 1
@@ -126,12 +131,20 @@ final class LocalCaptionCorrector {
         if let data = input.terminology.data(using: .utf8), let pairs = try? JSONDecoder().decode([[String: String]].self, from: data) {
             for pair in pairs {
                 if let preferred = pair["preferred"], !preferred.isEmpty,
-                   input.source.localizedCaseInsensitiveContains(preferred), !text.localizedCaseInsensitiveContains(preferred) {
+                   termKey(base).contains(termKey(preferred)), !termKey(comparison).contains(termKey(preferred)) {
                     throw CaptionCorrectionError.invalidResult
                 }
             }
         }
         return text
+    }
+    private static func comparisonText(_ text: String, for input: CaptionCorrectionRequest) -> String {
+        MaterialGlossary.normalizeSummary(text, terminology: input.terminology)
+    }
+    private static func termKey(_ text: String) -> String {
+        // Models can insert spaces between Japanese and Latin letters (ローカル LLM).
+        // Ignore spacing for term retention, but keep letters, digits and punctuation.
+        String(text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }).lowercased()
     }
     private static func content(_ value: String) -> [Character] {
         Array(value.precomposedStringWithCanonicalMapping.unicodeScalars.filter {
