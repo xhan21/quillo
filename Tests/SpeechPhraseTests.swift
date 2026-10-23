@@ -80,6 +80,18 @@ import Foundation
         let value = "one two three"
         let all = bounded.receive(SpeechSnapshot(segmentID: id, text: value, words: [SpeechWord(range: NSRange(location: 0, length: 3), timestamp: 0, duration: 4), SpeechWord(range: NSRange(location: 4, length: 3), timestamp: 4, duration: 4), SpeechWord(range: NSRange(location: 8, length: 5), timestamp: 8, duration: 1)]), final: false, now: 0)
         precondition(all.count == 2 && all[0].snapshot.text == "one two" && all[1].snapshot.text == "three")
+        var reset = SpeechPhraseSegmenter()
+        let sameTask = UUID()
+        let settled = SpeechSnapshot(segmentID: sameTask, text: "ちゃんと聞こえます", words: [SpeechWord(range: NSRange(location: 0, length: 4), timestamp: 0, duration: 0.4), SpeechWord(range: NSRange(location: 4, length: 5), timestamp: 0.4, duration: 0.8)])
+        _ = reset.receive(settled, final: false, now: 0)
+        _ = reset.receive(settled, final: false, now: 1.7)
+        let resetResult = reset.receive(.init(segmentID: sameTask, text: "最後", words: [.init(range: NSRange(location: 0, length: 2), timestamp: 0, duration: 0.011)]), final: false, now: 1.9)
+        precondition(resetResult.count == 2 && resetResult[0].final && resetResult[0].snapshot.text == settled.text && resetResult[1].snapshot.text == "最後" && resetResult[1].snapshot.segmentID != sameTask,
+                     "A recognizer's in-task transcript reset must retain the settled sentence")
+        var revision = SpeechPhraseSegmenter()
+        _ = revision.receive(settled, final: false, now: 0)
+        let quickRevision = revision.receive(.init(segmentID: sameTask, text: "ちゃんと聞こえた", words: [.init(range: NSRange(location: 0, length: 8), timestamp: 0, duration: 0.011)]), final: false, now: 0.1)
+        precondition(quickRevision.count == 1 && quickRevision[0].snapshot.segmentID == sameTask, "Quick revisions must not create false history")
         print("PASS: one continuous recognition task, no punctuation, audio pauses, timing corrections, missing timing, continuous speech bound, finalization and partial word safety")
     }
 }

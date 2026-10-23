@@ -20,7 +20,7 @@
 | 担当 | 主なファイル |
 |---|---|
 | 起動、メニュー、設定画面 | Sources/Main.swift、ControlView.swift |
-| 音声認識とライブ字幕 | SpeechCapture.swift、AppModel.swift、CaptionPlayback.swift |
+| 音声認識とライブ字幕 | SpeechCapture.swift、SpeechAudioRelay.swift、SpeechRecognitionStream.swift、AppModel.swift、CaptionPlayback.swift |
 | 字幕の表示・外観 | OverlayController.swift、CaptionAppearance.swift、SentenceCaptionReading.swift |
 | 画面選択・範囲指定・OCR | SlideCapture.swift、SlideRegionSelection.swift、SlideRegionEditing.swift、SlideAnalyzer.swift |
 | 資料の読み順・要約 | SlideReadingOrder.swift、SlideTranslationModel.swift、SlideSummary.swift |
@@ -46,6 +46,8 @@
 
 ## 言語の動作確認
 
+0.1.19からマイクのエンジンと入力タップは字幕を停止するまで維持します。`SpeechRecognitionStream`だけを切り替え、終了結果の待機中は`SpeechAudioRelay`がPCMをメモリ内で保持します。発話後に約0.8秒の無音があれば認識を更新し、Mac側の文リセットを避けます。無音がない場合は約50秒後から切れ目を待ち、最長約55秒で更新。終了結果の待機は最長1.5秒、保持は最大8秒で、上限到達時は明示して停止します。録音ファイルには保存しません。`SpeechContinuityTests`でフレームの欠落・重複、開始時の保持、終了結果・時間切れ・古い結果・明示停止を確認します。`zsh Tools/build-speech-history-check.sh --handoff`では本番と同じ認識処理を使い、次の「ちゃんと聞こえます」の開始直前に切り替えて、最初の音声を引き継ぎます。
+
 0.1.18の単独語補正は`GlossaryStore.correctionTerms`で入力全体・言語・前文・授業別の一致を確認して渡します。誤認識された一般語を共通辞書の通常の別名に追加しないでください。`GlossaryTests`と`CaptionCorrectionTests`は「怖い色→声色」、色についての文章の保持、途中で入力が伸びた場合、オフ復帰と再翻訳を確認します。`build/glossary-tests --live-homophone`は、実ローカルAIで単独語2例と色の意味を保持する2例を確認します。これも文字列による確認で、実マイクでの認識精度評価ではありません。
 
 履歴のオン／オフと表示数（1文／2文）は表示だけの設定です。内部の履歴記録は続け、マイク・翻訳セッションを作り直さないでください。発話IDに対応する履歴枠へ遅延翻訳を反映する回帰テストも維持します。
@@ -67,7 +69,7 @@
 1. 現在のコード、未保存の変更、CHANGELOGを確認する。
 2. 目的に合う変更と回帰テストを行う。`zsh test.sh` はMac上で実行する。実際のVision処理を使うため、制限された実行環境では失敗する場合がある。単なる表示名変更にマイクテストは不要。
 3. `zsh build.sh` でbuild/Quillo.appを生成する。`codesign --verify --deep --strict build/Quillo.app` で署名を確認する。
-4. アイコンを変更する場合はTools/CreateIcon.swiftからiconsetを生成し、macOSのiconutilでResources/AppIcon.icnsへ変換してからビルドする。
+4. アイコンを変更する場合はTools/CreateIcon.swiftからiconsetを生成し、macOSのiconutilでResources/AppIcon.icnsへ変換してからビルドする。バンドル内では`QuilloIcon.icns`として配置し、旧名の`AppIcon.icns`を残さない。アイコン更新のためにアプリ識別子や署名を変更しない。
 5. インストール済みQuilloを終了する。`/Applications/Quillo.app` に別アプリが存在しないか識別子を確認してから、ビルドを置き換える。以前の版は復元できる場所へ保存する。起動中の実行ファイルを書き換えない。
 6. アプリケーション内のQuilloを起動し、設定が維持されたこと、変更した機能が動くことを確認する。画面選択・マイクは本人の操作または許可済みの確認範囲で再開する。
 7. CHANGELOGと確認記録を更新してコミットする。一般配布用のリリース、公開範囲、モデル配布は本人の意図を確認して進める。

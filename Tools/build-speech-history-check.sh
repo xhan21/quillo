@@ -3,7 +3,12 @@ set -euo pipefail
 cd "${0:A:h}/.."
 CHECK_APP="$PWD/build/QuilloSpeechHistoryCheck.app"
 mkdir -p "$CHECK_APP/Contents/MacOS" "$CHECK_APP/Contents/Resources" build/module-cache
-if [[ "${1:-}" == "--short-start" ]]; then
+rm -f "$CHECK_APP/Contents/Resources/handoff-speech-fixture.aiff"
+if [[ "${1:-}" == "--handoff" ]]; then
+    say -v Kyoko -r 165 -o "$CHECK_APP/Contents/Resources/history-speech-fixture.aiff" '大丈夫です。 [[slnc 1000]]'
+    say -v Kyoko -r 165 -o "$CHECK_APP/Contents/Resources/handoff-speech-fixture.aiff" 'ちゃんと聞こえます。 [[slnc 1300]] 最後に使い心地を比較します。'
+    print -r -- '大丈夫' > "$CHECK_APP/Contents/Resources/expected-first-word.txt"
+elif [[ "${1:-}" == "--short-start" ]]; then
     # Begin with the reported word, without the usual four-second lead-in.
     say -v Kyoko -r 165 -o "$CHECK_APP/Contents/Resources/history-speech-fixture.aiff" '大丈夫です。 [[slnc 1300]] 次に簡単な試作品を作ります。 [[slnc 1300]] 最後に使い心地を比較します。'
     print -r -- '大丈夫' > "$CHECK_APP/Contents/Resources/expected-first-word.txt"

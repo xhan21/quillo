@@ -30,6 +30,7 @@ struct SpeechPhraseSegmenter {
     private var lastFullText = ""
     private var lastChange = 0.0
     private var beganAt = 0.0
+    private var lastHadAudioTiming = false
 
     mutating func receive(_ snapshot: SpeechSnapshot, final: Bool, now: Double, language: CaptionLanguage = .japanese) -> [SpeechPhraseUpdate] {
         if recognitionID != snapshot.segmentID {
@@ -73,12 +74,23 @@ struct SpeechPhraseSegmenter {
         let timed = words.count > 1 && zip(words, words.dropFirst()).allSatisfy { $0.timestamp <= $1.timestamp }
             && words.contains { $0.duration >= 0.04 }
             && words.last!.timestamp - words.first!.timestamp >= 0.2
+        var output: [SpeechPhraseUpdate] = []
+        // Some on-device recognizers finish an utterance with real word times,
+        // then reset the transcript to a fresh partial without isFinal or a new
+        // task ID. Keep the settled cue before accepting that new transcript.
+        let placeholder = !words.isEmpty && words.allSatisfy { $0.duration < 0.04 }
+        if lastHadAudioTiming, placeholder, now - lastChange >= Self.pause,
+           snapshot.text != lastFullText, !snapshot.text.hasPrefix(lastFullText) {
+            let previous = captionText((lastFullText as NSString).substring(from: min(offset, (lastFullText as NSString).length)))
+            if !previous.isEmpty { output.append(.init(snapshot: .init(segmentID: cueID, text: previous), final: true)) }
+            cueID = UUID(); offset = 0; anchorTime = nil; beganAt = now
+        }
+        lastHadAudioTiming = words.contains { $0.duration >= 0.04 }
         var start = min(offset, raw.length)
         if timed, let anchorTime {
             guard let word = words.first(where: { $0.timestamp >= anchorTime }) else { return [] }
             start = word.range.location
         }
-        var output: [SpeechPhraseUpdate] = []
         func append(_ value: String, id: UUID, final: Bool) {
             let clean = captionText(value)
             if !clean.isEmpty { output.append(SpeechPhraseUpdate(snapshot: SpeechSnapshot(segmentID: id, text: clean), final: final)) }

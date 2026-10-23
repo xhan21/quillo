@@ -9,7 +9,10 @@ SDK_PATH="$(xcrun --show-sdk-path)"
 xcrun swiftc -swift-version 5 -parse-as-library -O -target arm64-apple-macos15.0 -sdk "$SDK_PATH" -module-cache-path "$SCRIPT_DIR/build/module-cache" Sources/*.swift -o "$APP_PATH/Contents/MacOS/KotobaLocal" -framework AppKit -framework SwiftUI -framework Speech -framework AVFoundation -framework Translation -framework Carbon -framework ScreenCaptureKit -framework Vision -framework CoreImage
 cp Resources/ClassMaterialTranslator-LICENSE.txt "$APP_PATH/Contents/Resources/"
 cp Resources/Info.plist "$APP_PATH/Contents/Info.plist"
-if [[ -f Resources/AppIcon.icns ]]; then cp Resources/AppIcon.icns "$APP_PATH/Contents/Resources/AppIcon.icns"; fi
+# Use a distinct resource name for Quillo's Q artwork while retaining
+# the app/signing identity and existing microphone consent.
+cp Resources/AppIcon.icns "$APP_PATH/Contents/Resources/QuilloIcon.icns"
+rm -f "$APP_PATH/Contents/Resources/AppIcon.icns"
 # Keep the signing identity across local updates so macOS can retain consent.
 # An explicit identity takes precedence; never silently fall back if configured.
 SIGNING_FILE="$HOME/Library/Application Support/Quillo/Signing/identity.sha1"
