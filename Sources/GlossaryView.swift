@@ -3,7 +3,7 @@ import SwiftUI
 struct GlossaryPicker: View {
     @ObservedObject var store: GlossaryStore
     var body: some View {
-        Picker("授業別の辞書", selection: Binding(get: { store.selectedID }, set: { store.select($0) })) {
+        Picker("授業資料ライブラリ", selection: Binding(get: { store.selectedID }, set: { store.select($0) })) {
             Text("共通辞書のみ").tag("")
             ForEach(store.dictionaries) { Text($0.name + "（\($0.entries.count)語）").tag($0.id) }
         }
@@ -22,18 +22,18 @@ struct GlossarySettings: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("共通辞書 ＋ 授業別の辞書", systemImage: "character.book.closed").font(.system(size: 15, weight: .semibold))
-            Text("共通辞書はいつも使用します。授業別の辞書を選ぶと、両方を使います。同じ言葉の訳語は授業別を優先します。")
+            Label("共通辞書 ＋ 授業資料ライブラリ", systemImage: "character.book.closed").font(.system(size: 15, weight: .semibold))
+            Text("複数の授業の用語を1つのライブラリにまとめて使えます。共通辞書もいつも使用し、同じ言葉の訳語はライブラリを優先します。")
                 .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
             HStack {
                 GlossaryPicker(store: store)
                 Button("辞書を追加・更新…") { store.chooseImport() }
             }.disabled(isListening)
-            Text(isListening ? "授業別の辞書を変えるときは、音声字幕をいったん停止してください。" : "用語は音声認識・入力文の補正・字幕翻訳・資料要約で使います。個人の授業別辞書はMacに保存され、アプリ更新でも残ります。")
+            Text(isListening ? "ライブラリを変えるときは、音声字幕をいったん停止してください。" : "用語は音声認識・入力文の補正・字幕翻訳・資料要約で使います。1つに500語まで登録でき、Macに保存されます。アプリ更新でも残ります。")
                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Picker("確認する辞書", selection: $showingCommon) {
                 Text("共通（\(store.common.entries.count)語）").tag(true)
-                Text("授業別（\(store.selected?.entries.count ?? 0)語）").tag(false)
+                Text("授業資料（\(store.selected?.entries.count ?? 0)語）").tag(false)
             }.pickerStyle(.segmented)
             if showingCommon {
                 Text("日常表現の認識候補（\(CommonVocabulary.conversation.count)件）\n" + CommonVocabulary.conversation.joined(separator: "・"))

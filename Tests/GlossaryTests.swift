@@ -128,6 +128,29 @@ import AppKit
         let phrases = store.recognitionPhrases(.japanese)
         precondition(phrases.count == 100 && Set(phrases).count == 100)
         precondition(phrases.contains("授業用語0") && phrases.contains("声色") && phrases.contains("こわいろ") && phrases.contains("大丈夫です"))
+        // A combined library must retain words beyond the speech hint budget.
+        let library = MaterialGlossary(id: "library", name: "Combined test library", entries: (0..<500).map {
+            .init(terms: ["ja": "試験用語\($0)", "en": "test term \($0)", "zh-Hans": "测试术语\($0)", "zh-Hant": "測試術語\($0)"],
+                  aliases: ["ja": ["てすとようご\($0)"]])
+        })
+        try JSONEncoder().encode(library).write(to: file); try store.importFile(file)
+        let reloadedLibrary = GlossaryStore(directory: directory, defaults: defaults)
+        precondition(reloadedLibrary.selected == library, "All 500 terms and the selection survive reload")
+        precondition(reloadedLibrary.recognitionPhrases(.japanese).count == 100)
+        precondition(reloadedLibrary.recognitionPhrases(.japanese).contains("大丈夫です"))
+        for language in [CaptionLanguage.english, .chinese, .traditionalChinese] {
+            let last = GlossaryTranslation(source: "てすとようご499", language: .japanese, target: language,
+                                          glossary: reloadedLibrary.translationGlossary)
+            precondition(last.exactTerm == library.entries.last?.term(language))
+            precondition(reloadedLibrary.effective.summaryTerms(in: "試験用語499", language: .japanese, target: language)
+                .contains(library.entries.last!.term(language)!))
+        }
+        precondition(reloadedLibrary.correctionTerms(in: "てすとようご499", language: .japanese, previousSource: "")
+            .contains("試験用語499"))
+        let tooLarge = MaterialGlossary(id: "too-large", name: "Too large", entries: library.entries + basic.entries.prefix(1))
+        try JSONEncoder().encode(tooLarge).write(to: file)
+        do { try store.importFile(file); preconditionFailure("501 entries accepted") } catch GlossaryError.invalidFile {}
+        precondition(store.selected == library, "A rejected import must preserve the selected library")
         store.select("test")
         let loaded = GlossaryStore(directory: directory, defaults: defaults)
         precondition(loaded.selected == basic, "Selected dictionary survives restart")

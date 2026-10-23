@@ -17,6 +17,8 @@ struct GlossaryEntry: Codable, Equatable {
 }
 
 struct MaterialGlossary: Codable, Equatable, Identifiable {
+    // Library storage is independent of Apple's 100 speech-recognition hints.
+    static let maximumEntries = 500
     let id: String
     let name: String
     let entries: [GlossaryEntry]
@@ -45,7 +47,7 @@ struct MaterialGlossary: Codable, Equatable, Identifiable {
                 && !phrase.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
         }
         guard value.id.range(of: "^[A-Za-z0-9_-]{1,80}$", options: .regularExpression) != nil,
-              validPhrase(value.name), !value.entries.isEmpty, value.entries.count <= 100 else { throw GlossaryError.invalidFile }
+              validPhrase(value.name), !value.entries.isEmpty, value.entries.count <= maximumEntries else { throw GlossaryError.invalidFile }
         var seen: [String: Int] = [:]
         for (index, entry) in value.entries.enumerated() {
             guard entry.terms.count >= 2, Set(entry.terms.keys).isSubset(of: languages),
@@ -141,7 +143,7 @@ enum GlossaryError: LocalizedError {
     case invalidFile, ambiguousTerm
     var errorDescription: String? {
         switch self {
-        case .invalidFile: return "辞書を読み込めませんでした。辞書名・用語・言語を確認してください（100語、256KBまで）。"
+        case .invalidFile: return "辞書を読み込めませんでした。辞書名・用語・言語を確認してください（\(MaterialGlossary.maximumEntries)語、256KBまで）。"
         case .ambiguousTerm: return "同じ言葉に異なる訳語が登録されています。辞書を確認してください。"
         }
     }
